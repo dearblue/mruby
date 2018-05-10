@@ -71,6 +71,9 @@ struct RString {
 #define RSTR_POOL_P(s) ((s)->flags & MRB_STR_POOL)
 #define RSTR_SET_POOL_FLAG(s) ((s)->flags |= MRB_STR_POOL)
 
+#define RSTR_EXTERNAL_P(s) ((s)->flags & MRB_STR_EXTERNAL)
+#define RSTR_SET_EXTERNAL_FLAG(s) ((s)->flags |= MRB_STR_EXTERNAL)
+
 /*
  * Returns a pointer from a Ruby string
  */
@@ -89,8 +92,9 @@ MRB_API mrb_int mrb_str_strlen(mrb_state*, struct RString*);
 #define MRB_STR_POOL      8
 #define MRB_STR_NO_UTF   16
 #define MRB_STR_EMBED    32
-#define MRB_STR_EMBED_LEN_MASK 0x7c0
-#define MRB_STR_EMBED_LEN_SHIFT 6
+#define MRB_STR_EXTERNAL 64
+#define MRB_STR_EMBED_LEN_MASK 0xf80
+#define MRB_STR_EMBED_LEN_SHIFT 7
 
 void mrb_gc_free_str(mrb_state*, struct RString*);
 MRB_API void mrb_str_modify(mrb_state*, struct RString*);
@@ -316,6 +320,10 @@ MRB_API mrb_value mrb_string_type(mrb_state *mrb, mrb_value str);
 MRB_API mrb_value mrb_check_string_type(mrb_state *mrb, mrb_value str);
 MRB_API mrb_value mrb_str_new_capa(mrb_state *mrb, size_t capa);
 MRB_API mrb_value mrb_str_buf_new(mrb_state *mrb, size_t capa);
+
+MRB_API mrb_value mrb_str_external_bind(mrb_state *mrb, void *ptr, size_t capa);
+MRB_API mrb_value mrb_str_external_unbind(mrb_state *mrb, mrb_value str);
+MRB_API mrb_value mrb_str_external_wrap(mrb_state *mrb, void *ptr, size_t capacity, mrb_value (*func)(mrb_state *, mrb_value user, mrb_value extstr), mrb_value user);
 
 MRB_API const char *mrb_string_value_cstr(mrb_state *mrb, mrb_value *ptr);
 MRB_API const char *mrb_string_value_ptr(mrb_state *mrb, mrb_value str);

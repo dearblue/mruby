@@ -4,6 +4,11 @@
 #include <mruby/class.h>
 #include <mruby/string.h>
 #include <mruby/range.h>
+#include <mruby/error.h>
+
+#ifndef MRB_WITHOUT_FLOAT
+# include <float.h>
+#endif
 
 static mrb_value
 mrb_str_getbyte(mrb_state *mrb, mrb_value str)
@@ -582,6 +587,34 @@ mrb_str_del_suffix(mrb_state *mrb, mrb_value self)
   return mrb_str_substr(mrb, self, 0, slen-plen);
 }
 
+struct mrb_str_external_wrap
+{
+  mrb_value str;
+  mrb_value user;
+  mrb_value (*func)(mrb_state *, mrb_value, mrb_value);
+};
+
+static mrb_value
+mrb_str_external_wrap_body(mrb_state *mrb, mrb_value arg)
+{
+  struct mrb_str_external_wrap *p = (struct mrb_str_external_wrap *)mrb_cptr(arg);
+
+  return p->func(mrb, p->user, p->str);
+}
+
+MRB_API mrb_value
+mrb_str_external_wrap(mrb_state *mrb, void *ptr, size_t capacity, mrb_value (*func)(mrb_state *, mrb_value, mrb_value), mrb_value user)
+{
+  struct mrb_str_external_wrap args = {
+    mrb_str_external_bind(mrb, ptr, capacity),
+    user, func
+  };
+
+  return mrb_ensure(mrb,
+                    mrb_str_external_wrap_body, mrb_cptr_value(mrb, &args),
+                    mrb_str_external_unbind, args.str);
+}
+
 static mrb_value
 mrb_str_lines(mrb_state *mrb, mrb_value self)
 {
@@ -605,6 +638,83 @@ mrb_str_lines(mrb_state *mrb, mrb_value self)
     mrb_gc_arena_restore(mrb, ai);
   }
   return result;
+}
+
+#ifndef MRB_WITHOUT_FLOAT
+# ifdef MRB_USE_FLOAT
+#  define MRB_FLOAT_MATN_DIG FLT_MANT_DIG
+# else
+#  define MRB_FLOAT_MATN_DIG DBL_MANT_DIG
+# endif
+#endif
+
+static mrb_value
+mrb_str_s_external_bind(mrb_state *mrb, mrb_value self)
+{
+  mrb_int size;
+  mrb_value obj;
+  void *addr;
+
+  mrb_get_args(mrb, "oi", &obj, &size);
+
+  if (mrb_nil_p(obj)) {
+    addr = NULL;
+    size = 0;
+  }
+  else {
+    if (mrb_type(obj) == MRB_TT_FIXNUM) {
+      mrb_int addri = mrb_fixnum(obj);
+#if MRB_INT_MAX > SIZE_MAX
+      if (addri > SIZE_MAX || addri < 0) {
+        mrb_raise(mrb, E_RUNTIME_ERROR, "out of address");
+      }
+#endif
+      addr = (void *)(intptr_t)addri;
+    }
+#ifndef MRB_WITHOUT_FLOAT
+    else if (mrb_type(obj) == MRB_TT_FLOAT) {
+      mrb_float addrf = mrb_float(obj);
+
+# if MRB_INT_BIT > MRB_FLOAT_MATN_DIG
+      if (addrf > ~(~(uint64_t)0 << MRB_FLOAT_MATN_DIG)) {
+        mrb_raise(mrb, E_RUNTIME_ERROR, "lack of precision for address");
+      }
+# endif
+
+      addr = (void *)(intptr_t)addrf;
+    }
+#endif /* MRB_WITHOUT_FLOAT */
+    else {
+      mrb_raise(mrb, E_TYPE_ERROR, "wrong type for address");
+    }
+  }
+
+  return mrb_str_external_bind(mrb, addr, size);
+}
+
+static mrb_value
+mrb_str_external_addr(mrb_state *mrb, mrb_value self)
+{
+  struct RString *p = RSTRING(self);
+
+  if (RSTR_EXTERNAL_P(p) && p->as.heap.ptr) {
+    if ((uintptr_t)p->as.heap.ptr <= (uintptr_t)MRB_INT_MAX || (uintptr_t)p->as.heap.ptr >= (uintptr_t)MRB_INT_MIN) {
+      return mrb_fixnum_value((uintptr_t)p->as.heap.ptr);
+    }
+#if !defined(MRB_WITHOUT_FLOAT) && MRB_INT_BIT > MRB_FLOAT_MATN_DIG
+    else if ((uintptr_t)p->as.heap.ptr <= ~(~(uint64_t)0 << MRB_FLOAT_MATN_DIG)) {
+      return mrb_float_value(mrb, (uintptr_t)p->as.heap.ptr);
+    }
+#endif
+  }
+
+  return mrb_nil_value();
+}
+
+static mrb_value
+mrb_str_is_external(mrb_state *mrb, mrb_value self)
+{
+  return mrb_bool_value(RSTR_EXTERNAL_P(RSTRING(self)));
 }
 
 void
@@ -637,6 +747,11 @@ mrb_mruby_string_ext_gem_init(mrb_state* mrb)
 
   mrb_define_method(mrb, s, "__lines",         mrb_str_lines,           MRB_ARGS_NONE());
   mrb_define_method(mrb, mrb->fixnum_class, "chr", mrb_fixnum_chr, MRB_ARGS_NONE());
+
+  mrb_define_class_method(mrb, s, "__external_bind", mrb_str_s_external_bind, MRB_ARGS_REQ(2));
+  mrb_define_method(mrb, s, "external_unbind", mrb_str_external_unbind, MRB_ARGS_NONE());
+  mrb_define_method(mrb, s, "external_addr",   mrb_str_external_addr,   MRB_ARGS_NONE());
+  mrb_define_method(mrb, s, "external?",       mrb_str_is_external,     MRB_ARGS_NONE());
 }
 
 void

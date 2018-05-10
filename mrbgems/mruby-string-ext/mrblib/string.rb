@@ -21,6 +21,27 @@ class String
 
   ##
   # call-seq:
+  #    String.external_bind(obj, size) -> string
+  #    String.external_bind(obj, size) { |str| block } -> block return value
+  #
+  # Bind pointer address to string object.
+  #
+  def self.external_bind(obj, size)
+    str = __external_bind(obj, size)
+
+    if block_given?
+      begin
+        yield str
+      ensure
+        str.external_unbind
+      end
+    else
+      str
+    end
+  end
+
+  ##
+  # call-seq:
   #    string.clear    ->  string
   #
   # Makes string empty.

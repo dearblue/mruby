@@ -144,6 +144,12 @@ resize_capa(mrb_state *mrb, struct RString *s, size_t capacity)
       s->as.heap.aux.capa = (mrb_int)capacity;
     }
   }
+  else if (RSTR_EXTERNAL_P(s)) {
+    if (capacity > s->as.heap.aux.capa) {
+      mrb_raisef(mrb, E_RUNTIME_ERROR, "no expandable string - %S",
+                 mrb_any_to_s(mrb, mrb_obj_value(s)));
+    }
+  }
   else {
     s->as.heap.ptr = (char*)mrb_realloc(mrb, RSTR_PTR(s), capacity+1);
     s->as.heap.aux.capa = (mrb_int)capacity;
@@ -186,6 +192,38 @@ mrb_str_new_static(mrb_state *mrb, const char *p, size_t len)
 {
   struct RString *s = str_new_static(mrb, p, len);
   return mrb_obj_value(s);
+}
+
+MRB_API mrb_value
+mrb_str_external_bind(mrb_state *mrb, void *ptr, size_t capa)
+{
+  struct RString *s;
+
+  if (capa >= MRB_INT_MAX) {
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "string capacity size too big");
+  }
+  s = mrb_obj_alloc_string(mrb);
+  s->as.heap.len = (mrb_int)capa;
+  s->as.heap.aux.capa = (mrb_int)capa;
+  s->as.heap.ptr = (char *)ptr;
+  s->flags = MRB_STR_NOFREE | MRB_STR_EXTERNAL;
+
+  return mrb_obj_value(s);
+}
+
+MRB_API mrb_value
+mrb_str_external_unbind(mrb_state *mrb, mrb_value str)
+{
+  struct RString *s = RSTRING(str);
+
+  if (RSTR_EXTERNAL_P(s)) {
+    s->flags &= ~(MRB_STR_NOFREE | MRB_STR_EXTERNAL | MRB_STR_NO_UTF);
+    s->flags |= MRB_STR_EMBED;
+    RSTR_SET_EMBED_LEN(s, 0);
+    s->as.ary[0] = '\0';
+  }
+
+  return str;
 }
 
 static void
@@ -349,7 +387,7 @@ str_make_shared(mrb_state *mrb, struct RString *orig, struct RString *s)
   mrb_shared_string *shared;
   mrb_int len = RSTR_LEN(orig);
 
-  mrb_assert(!RSTR_EMBED_P(orig));
+  mrb_assert(!RSTR_EMBED_P(orig) && !RSTR_EXTERNAL_P(orig));
   if (RSTR_SHARED_P(orig)) {
     shared = orig->as.heap.aux.shared;
     shared->refcnt++;
@@ -404,7 +442,7 @@ byte_subseq(mrb_state *mrb, mrb_value str, mrb_int beg, mrb_int len)
   struct RString *orig, *s;
 
   orig = mrb_str_ptr(str);
-  if (RSTR_EMBED_P(orig) || RSTR_LEN(orig) == 0 || len <= RSTRING_EMBED_LEN_MAX) {
+  if (RSTR_EMBED_P(orig) || RSTR_EXTERNAL_P(orig) || RSTR_LEN(orig) == 0 || len <= RSTRING_EMBED_LEN_MAX) {
     s = str_new(mrb, RSTR_PTR(orig)+beg, len);
   }
   else {
@@ -517,17 +555,27 @@ str_replace(mrb_state *mrb, struct RString *s1, struct RString *s2)
     mrb_free(mrb, s1->as.heap.ptr);
   }
 
-  RSTR_UNSET_FSHARED_FLAG(s1);
-  RSTR_UNSET_NOFREE_FLAG(s1);
-  if (len <= RSTRING_EMBED_LEN_MAX) {
-    RSTR_UNSET_SHARED_FLAG(s1);
-    RSTR_UNSET_FSHARED_FLAG(s1);
-    RSTR_SET_EMBED_FLAG(s1);
-    memcpy(s1->as.ary, RSTR_PTR(s2), len);
-    RSTR_SET_EMBED_LEN(s1, len);
+  if (RSTR_EXTERNAL_P(s1) || RSTR_EXTERNAL_P(s2)) {
+    resize_capa(mrb, s1, len);
+    memmove(s1->as.heap.ptr, RSTR_PTR(s2), len);
+    s1->as.heap.len = len;
+    if (s1->as.heap.len < s1->as.heap.aux.capa) {
+      s1->as.heap.ptr[len] = '\0';
+    }
   }
   else {
-    str_make_shared(mrb, s2, s1);
+    RSTR_UNSET_FSHARED_FLAG(s1);
+    RSTR_UNSET_NOFREE_FLAG(s1);
+    if (len <= RSTRING_EMBED_LEN_MAX) {
+      RSTR_UNSET_SHARED_FLAG(s1);
+      RSTR_UNSET_FSHARED_FLAG(s1);
+      RSTR_SET_EMBED_FLAG(s1);
+      memcpy(s1->as.ary, RSTR_PTR(s2), len);
+      RSTR_SET_EMBED_LEN(s1, len);
+    }
+    else {
+      str_make_shared(mrb, s2, s1);
+    }
   }
 
   return mrb_obj_value(s1);
@@ -677,6 +725,13 @@ mrb_str_modify(mrb_state *mrb, struct RString *s)
       str_decref(mrb, shared);
     }
     RSTR_UNSET_SHARED_FLAG(s);
+    return;
+  }
+  if (RSTR_EXTERNAL_P(s)) {
+    mrb_int len = s->as.heap.len;
+    if (len < s->as.heap.aux.capa) {
+      s->as.heap.ptr[len] = '\0';
+    }
     return;
   }
   if (RSTR_NOFREE_P(s) || RSTR_FSHARED_P(s)) {
@@ -2213,9 +2268,10 @@ mrb_string_value_cstr(mrb_state *mrb, mrb_value *ptr)
   struct RString *ps = mrb_str_ptr(str);
   mrb_int len = mrb_str_strlen(mrb, ps);
   char *p = RSTR_PTR(ps);
+  mrb_bool justcapa = (RSTR_EXTERNAL_P(ps) && ps->as.heap.len == ps->as.heap.aux.capa);
 
-  if (!p || p[len] != '\0') {
-    if (MRB_FROZEN_P(ps)) {
+  if (!p || justcapa || p[len] != '\0') {
+    if (MRB_FROZEN_P(ps) || justcapa) {
       *ptr = str = mrb_str_dup(mrb, str);
       ps = mrb_str_ptr(str);
     }
