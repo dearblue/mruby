@@ -495,8 +495,6 @@ write_debug_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const
 
   ret = cur - bin;
   mrb_assert_int_fit(ptrdiff_t, ret, uint32_t, UINT32_MAX);
-  uint32_to_bin((uint32_t)ret, bin);
-
   mrb_assert_int_fit(ptrdiff_t, ret, size_t, SIZE_MAX);
   return (size_t)ret;
 }
@@ -504,6 +502,7 @@ write_debug_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const
 static size_t
 write_debug_record(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const* filenames, uint16_t filenames_len)
 {
+  uint8_t *start = bin;
   size_t size, len;
   int irep_no;
 
@@ -514,6 +513,7 @@ write_debug_record(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const* 
     bin += len;
     size += len;
   }
+  uint32_to_bin(size, start);
 
   mrb_assert(size == get_debug_record_size(mrb, irep));
   return size;

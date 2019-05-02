@@ -305,10 +305,6 @@ read_debug_record(mrb_state *mrb, const uint8_t *start, mrb_irep* irep, size_t *
   diff = bin - start;
   mrb_assert_int_fit(ptrdiff_t, diff, size_t, SIZE_MAX);
 
-  if (record_size != (size_t)diff) {
-    return MRB_DUMP_GENERAL_FAILURE;
-  }
-
   for (i = 0; i < irep->rlen; i++) {
     size_t len;
     int ret;
@@ -320,6 +316,9 @@ read_debug_record(mrb_state *mrb, const uint8_t *start, mrb_irep* irep, size_t *
 
   diff = bin - start;
   mrb_assert_int_fit(ptrdiff_t, diff, size_t, SIZE_MAX);
+  if (record_size != (size_t)diff) {
+    return MRB_DUMP_GENERAL_FAILURE;
+  }
   *record_len = (size_t)diff;
 
   return MRB_DUMP_OK;
