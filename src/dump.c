@@ -57,7 +57,7 @@ write_irep_header(mrb_state *mrb, mrb_irep *irep, uint8_t *buf)
 {
   uint8_t *cur = buf;
 
-  cur += uint32_to_bin((uint32_t)get_irep_record_size_1(mrb, irep), cur);  /* record size */
+  cur += uint32_to_bin(0, cur);  /* record size (dummy) */
   cur += uint16_to_bin((uint16_t)irep->nlocals, cur);  /* number of local variable */
   cur += uint16_to_bin((uint16_t)irep->nregs, cur);  /* number of register variable */
   cur += uint16_to_bin((uint16_t)irep->rlen, cur);  /* number of child irep */
@@ -313,6 +313,7 @@ write_irep_record(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, size_t *irep_rec
     bin += rsize;
   }
   *irep_record_size = bin - src;
+  uint32_to_bin(*irep_record_size, src);
   return MRB_DUMP_OK;
 }
 
