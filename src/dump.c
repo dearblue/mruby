@@ -612,6 +612,8 @@ write_lv_record(mrb_state *mrb, const mrb_irep *irep, uint8_t **start, mrb_sym c
   uint8_t *cur = *start;
   int i;
 
+  cur += sizeof(uint32_t); /* skip record size */
+
   for (i = 0; i + 1 < irep->nlocals; ++i) {
     if (irep->lv[i].name == 0) {
       cur += uint16_to_bin(RITE_LV_NULL_MARK, cur);
@@ -630,6 +632,7 @@ write_lv_record(mrb_state *mrb, const mrb_irep *irep, uint8_t **start, mrb_sym c
     write_lv_record(mrb, irep->reps[i], &cur, syms, syms_len);
   }
 
+  uint32_to_bin(cur - *start, *start);
   *start = cur;
 
   return MRB_DUMP_OK;
@@ -641,6 +644,7 @@ get_lv_record_size(mrb_state *mrb, mrb_irep *irep)
   size_t ret = 0;
   int i;
 
+  ret += sizeof(uint32_t); /* for record size */
   ret += (sizeof(uint16_t) + sizeof(uint16_t)) * (irep->nlocals - 1);
 
   for (i = 0; i < irep->rlen; ++i) {
