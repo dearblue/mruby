@@ -58,6 +58,45 @@ str_to_double(mrb_state *mrb, mrb_value str)
 }
 #endif
 
+struct symbol_table
+{
+  uint32_t refcount;
+  uint32_t len;
+  mrb_sym syms[];
+};
+
+static struct symbol_table*
+alloc_symbol_table(mrb_state *mrb, uint32_t sym_len)
+{
+  size_t needs = sizeof(struct symbol_table) + sizeof(mrb_sym) * (size_t)sym_len;
+  struct symbol_table *tab = (struct symbol_table*)mrb_malloc(mrb, needs);
+  tab->refcount = 1;
+  tab->len = sym_len;
+  return tab;
+}
+
+static void
+symbol_table_incref(mrb_state *mrb, struct symbol_table *tab)
+{
+  tab->refcount ++;
+}
+
+static void
+symbol_table_decref(mrb_state *mrb, struct symbol_table *tab)
+{
+  tab->refcount --;
+  if (tab->refcount < 1) {
+    mrb_free(mrb, tab);
+  }
+}
+
+/* Hidden function */
+void
+mrb_symbol_table_decref(mrb_state *mrb, void *tab)
+{
+  symbol_table_decref(mrb, (struct symbol_table *)tab);
+}
+
 static mrb_irep*
 read_irep_record_1(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t *len, uint8_t flags)
 {
