@@ -393,8 +393,10 @@ debug_exit:
   return result;
 }
 
+static int read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *record_len, struct symbol_table *syms);
+
 static int
-read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *record_len, mrb_sym const *syms, uint32_t syms_len)
+read_lv_record_core(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *record_len, struct symbol_table *syms)
 {
   const uint8_t *bin = start;
   ptrdiff_t diff;
@@ -412,10 +414,10 @@ read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *rec
       irep->lv[i].r = 0;
     }
     else {
-      if (sym_idx >= syms_len) {
+      if (sym_idx >= syms->len) {
         return MRB_DUMP_GENERAL_FAILURE;
       }
-      irep->lv[i].name = syms[sym_idx];
+      irep->lv[i].name = syms->syms[sym_idx];
 
       irep->lv[i].r = bin_to_uint16(bin);
     }
@@ -426,7 +428,7 @@ read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *rec
     size_t len;
     int ret;
 
-    ret = read_lv_record(mrb, bin, irep->reps[i], &len, syms, syms_len);
+    ret = read_lv_record(mrb, bin, irep->reps[i], &len, syms);
     if (ret != MRB_DUMP_OK) return ret;
     bin += len;
   }
@@ -439,6 +441,20 @@ read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *rec
 }
 
 static int
+read_lv_record(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, size_t *record_len, struct symbol_table *syms)
+{
+  if (irep->flags & MRB_LAZY_IREP) {
+    symbol_table_incref(mrb, syms);
+    irep->lazy.lvar_record = start;
+    irep->lazy.lvar_symbols = syms;
+    *record_len = bin_to_uint32(start);
+    return MRB_DUMP_OK;
+  }
+
+  return read_lv_record_core(mrb, start, irep, record_len, syms);
+}
+
+static int
 read_section_lv(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, uint8_t flags)
 {
   const uint8_t *bin;
@@ -448,7 +464,7 @@ read_section_lv(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, uint8_t fl
   size_t len = 0;
   int result;
   uint32_t syms_len;
-  mrb_sym *syms;
+  struct symbol_table *syms;
   mrb_sym (*intern_func)(mrb_state*, const char*, size_t) =
     (flags & FLAG_SRC_MALLOC)? mrb_intern : mrb_intern_static;
 
@@ -458,16 +474,16 @@ read_section_lv(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, uint8_t fl
 
   syms_len = bin_to_uint32(bin);
   bin += sizeof(uint32_t);
-  syms = (mrb_sym*)mrb_malloc(mrb, sizeof(mrb_sym) * (size_t)syms_len);
+  syms = alloc_symbol_table(mrb, syms_len);
   for (i = 0; i < syms_len; ++i) {
     uint16_t const str_len = bin_to_uint16(bin);
     bin += sizeof(uint16_t);
 
-    syms[i] = intern_func(mrb, (const char*)bin, str_len);
+    syms->syms[i] = intern_func(mrb, (const char*)bin, str_len);
     bin += str_len;
   }
 
-  result = read_lv_record(mrb, bin, irep, &len, syms, syms_len);
+  result = read_lv_record(mrb, bin, irep, &len, syms);
   if (result != MRB_DUMP_OK) goto lv_exit;
 
   bin += len;
@@ -478,7 +494,7 @@ read_section_lv(mrb_state *mrb, const uint8_t *start, mrb_irep *irep, uint8_t fl
   }
 
 lv_exit:
-  mrb_free(mrb, syms);
+  symbol_table_decref(mrb, syms);
   return result;
 }
 
