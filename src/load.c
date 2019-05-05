@@ -59,7 +59,7 @@ str_to_double(mrb_state *mrb, mrb_value str)
 #endif
 
 static mrb_irep*
-read_irep_record_1(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags)
+read_irep_record_1(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t *len, uint8_t flags)
 {
   int i;
   const uint8_t *src = bin;
@@ -67,7 +67,6 @@ read_irep_record_1(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flag
   uint16_t tt, pool_data_len, snl;
   int plen;
   int ai = mrb_gc_arena_save(mrb);
-  mrb_irep *irep = mrb_add_irep(mrb);
 
   /* skip record size */
   src += sizeof(uint32_t);
@@ -200,12 +199,14 @@ read_irep_record_1(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flag
   return irep;
 }
 
+static mrb_irep *read_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags);
+
 static mrb_irep*
-read_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags)
+read_irep_record_core(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t *len, uint8_t flags)
 {
-  mrb_irep *irep = read_irep_record_1(mrb, bin, len, flags);
   int i;
 
+  irep = read_irep_record_1(mrb, bin, irep, len, flags);
   if (irep == NULL) {
     return NULL;
   }
@@ -222,6 +223,13 @@ read_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags)
     *len += rlen;
   }
   return irep;
+}
+
+static mrb_irep*
+read_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags)
+{
+  mrb_irep *irep = mrb_add_irep(mrb);
+  return read_irep_record_core(mrb, bin, irep, len, flags);
 }
 
 static mrb_irep*
