@@ -145,7 +145,7 @@ mrb_local_variables(mrb_state *mrb, mrb_value self)
   vars = mrb_hash_new(mrb);
   while (proc) {
     if (MRB_PROC_CFUNC_P(proc)) break;
-    irep = proc->body.irep;
+    irep = mrb_irep_getready(mrb, proc->body.irep);
     if (!irep->lv) break;
     for (i = 0; i + 1 < irep->nlocals; ++i) {
       if (irep->lv[i].name) {

@@ -206,7 +206,7 @@ exc_debug_info(mrb_state *mrb, struct RObject *exc)
 
     if (!err && pc) err = pc - 1;
     if (err && ci->proc && !MRB_PROC_CFUNC_P(ci->proc)) {
-      mrb_irep *irep = ci->proc->body.irep;
+      mrb_irep *irep = mrb_irep_getready(mrb, ci->proc->body.irep);
 
       int32_t const line = mrb_debug_get_line(mrb, irep, err - irep->iseq);
       char const* file = mrb_debug_get_filename(mrb, irep, err - irep->iseq);

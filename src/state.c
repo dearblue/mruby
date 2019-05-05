@@ -104,6 +104,8 @@ mrb_irep_cutref(mrb_state *mrb, mrb_irep *irep)
   mrb_irep *tmp;
   int i;
 
+  if (irep->flags & MRB_LAZY_IREP) return;
+
   for (i=0; i<irep->rlen; i++) {
     tmp = irep->reps[i];
     irep->reps[i] = NULL;
@@ -111,33 +113,45 @@ mrb_irep_cutref(mrb_state *mrb, mrb_irep *irep)
   }
 }
 
+void mrb_symbol_table_decref(mrb_state *mrb, void *tab);
+
 void
 mrb_irep_free(mrb_state *mrb, mrb_irep *irep)
 {
   int i;
 
-  if (!(irep->flags & MRB_ISEQ_NO_FREE))
-    mrb_free(mrb, irep->iseq);
-  if (irep->pool) for (i=0; i<irep->plen; i++) {
-    if (mrb_type(irep->pool[i]) == MRB_TT_STRING) {
-      mrb_gc_free_str(mrb, RSTRING(irep->pool[i]));
-      mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
+  if (irep->flags & MRB_LAZY_IREP) {
+    if (irep->lazy.lvar_symbols) {
+      mrb_symbol_table_decref(mrb, irep->lazy.lvar_symbols);
     }
+    if (irep->lazy.debug_filenames) {
+      mrb_symbol_table_decref(mrb, irep->lazy.debug_filenames);
+    }
+  }
+  else {
+    if (!(irep->flags & MRB_ISEQ_NO_FREE))
+      mrb_free(mrb, irep->iseq);
+    if (irep->pool) for (i=0; i<irep->plen; i++) {
+      if (mrb_type(irep->pool[i]) == MRB_TT_STRING) {
+        mrb_gc_free_str(mrb, RSTRING(irep->pool[i]));
+        mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
+      }
 #if defined(MRB_WORD_BOXING) && !defined(MRB_WITHOUT_FLOAT)
-    else if (mrb_type(irep->pool[i]) == MRB_TT_FLOAT) {
-      mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
-    }
+      else if (mrb_type(irep->pool[i]) == MRB_TT_FLOAT) {
+        mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
+      }
 #endif
+    }
+    mrb_free(mrb, irep->pool);
+    mrb_free(mrb, irep->syms);
+    for (i=0; i<irep->rlen; i++) {
+      if (irep->reps[i])
+        mrb_irep_decref(mrb, irep->reps[i]);
+    }
+    mrb_free(mrb, irep->reps);
+    mrb_free(mrb, irep->lv);
+    mrb_debug_info_free(mrb, irep->debug_info);
   }
-  mrb_free(mrb, irep->pool);
-  mrb_free(mrb, irep->syms);
-  for (i=0; i<irep->rlen; i++) {
-    if (irep->reps[i])
-      mrb_irep_decref(mrb, irep->reps[i]);
-  }
-  mrb_free(mrb, irep->reps);
-  mrb_free(mrb, irep->lv);
-  mrb_debug_info_free(mrb, irep->debug_info);
   mrb_free(mrb, irep);
 }
 

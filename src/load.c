@@ -238,11 +238,31 @@ read_irep_record_1(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t *l
   return irep;
 }
 
+static mrb_irep*
+make_lazy_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags)
+{
+  mrb_irep *irep;
+
+  mrb_assert((flags & FLAG_SRC_MALLOC) == 0);
+
+  irep = mrb_add_irep(mrb);
+  irep->flags |= MRB_ISEQ_NO_FREE | MRB_LAZY_IREP;
+  irep->lazy.irep_record = bin;
+  irep->lazy.lvar_record = NULL;
+  irep->lazy.debug_record = NULL;
+  irep->lazy.lvar_symbols = NULL;
+  irep->lazy.debug_filenames = NULL;
+  *len = bin_to_uint32(bin);
+
+  return irep;
+}
+
 static mrb_irep *read_irep_record(mrb_state *mrb, const uint8_t *bin, size_t *len, uint8_t flags);
 
 static mrb_irep*
 read_irep_record_core(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t *len, uint8_t flags)
 {
+  mrb_irep *(*read_record)(mrb_state*, const uint8_t*, size_t*, uint8_t);
   int i;
 
   irep = read_irep_record_1(mrb, bin, irep, len, flags);
@@ -250,11 +270,12 @@ read_irep_record_core(mrb_state *mrb, const uint8_t *bin, mrb_irep *irep, size_t
     return NULL;
   }
 
+  read_record = flags & FLAG_SRC_MALLOC ? read_irep_record : make_lazy_irep_record;
   bin += *len;
   for (i=0; i<irep->rlen; i++) {
     size_t rlen;
 
-    irep->reps[i] = read_irep_record(mrb, bin, &rlen, flags);
+    irep->reps[i] = read_record(mrb, bin, &rlen, flags);
     if (irep->reps[i] == NULL) {
       return NULL;
     }
@@ -746,3 +767,55 @@ mrb_load_irep_file(mrb_state *mrb, FILE* fp)
   return mrb_load_irep_file_cxt(mrb, fp, NULL);
 }
 #endif /* MRB_DISABLE_STDIO */
+
+MRB_API mrb_irep*
+mrb_irep_getready(mrb_state *mrb, mrb_irep *irep)
+{
+  size_t dummy_len;
+  mrb_irep *tmp;
+  uint32_t refcnt;
+
+  if (irep == NULL) { return NULL; }
+  if (mrb_irep_ready_p(irep)) { return irep; }
+
+  tmp = mrb_add_irep(mrb);
+
+  read_irep_record_core(mrb, irep->lazy.irep_record, tmp, &dummy_len, FLAG_SRC_STATIC);
+  if (irep->lazy.lvar_record) {
+    read_lv_record_core(mrb, irep->lazy.lvar_record, tmp, &dummy_len, (struct symbol_table *)irep->lazy.lvar_symbols);
+  }
+  if (irep->lazy.debug_record) {
+    read_debug_record_core(mrb, irep->lazy.debug_record, tmp, &dummy_len, (struct symbol_table *)irep->lazy.debug_filenames);
+  }
+
+  /* Interchange & Cleanup */
+
+  if (irep->lazy.lvar_symbols) {
+    symbol_table_decref(mrb, (struct symbol_table *)irep->lazy.lvar_symbols);
+  }
+  if (irep->lazy.debug_filenames) {
+    symbol_table_decref(mrb, (struct symbol_table *)irep->lazy.debug_filenames);
+  }
+
+  refcnt = irep->refcnt;
+  *irep = *tmp;
+  irep->refcnt = refcnt;
+
+  mrb_free(mrb, tmp);
+
+  return irep;
+}
+
+mrb_irep *
+mrb_irep_getready_all(mrb_state *mrb, mrb_irep *irep)
+{
+  int i;
+
+  if (!mrb_irep_getready(mrb, irep)) { return NULL; }
+
+  for (i = 0; i < irep->rlen; i ++) {
+    mrb_irep_getready_all(mrb, irep->reps[i]);
+  }
+
+  return irep;
+}

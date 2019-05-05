@@ -60,6 +60,7 @@ typedef struct mrb_irep {
 } mrb_irep;
 
 #define MRB_ISEQ_NO_FREE 1
+#define MRB_LAZY_IREP 2
 
 MRB_API mrb_irep *mrb_add_irep(mrb_state *mrb);
 
@@ -80,6 +81,18 @@ MRB_API mrb_value mrb_load_irep_cxt(mrb_state*, const uint8_t*, mrbc_context*);
  * @param [size_t] size of irep buffer. If -1 is given, it is considered unrestricted.
  */
 MRB_API mrb_value mrb_load_irep_buf_cxt(mrb_state*, const void*, size_t, mrbc_context*);
+
+/* Get ready for lazy irep on the fly, otherwise just return irep */
+MRB_API mrb_irep *mrb_irep_getready(mrb_state *mrb, mrb_irep *irep);
+
+/* Check ready for lazy irep */
+MRB_INLINE mrb_bool
+mrb_irep_ready_p(mrb_irep *irep)
+{
+  return (irep == NULL || (irep->flags & MRB_LAZY_IREP) == 0) ? TRUE : FALSE;
+}
+
+mrb_irep *mrb_irep_getready_all(mrb_state *mrb, mrb_irep *irep);
 
 void mrb_irep_free(mrb_state*, struct mrb_irep*);
 void mrb_irep_incref(mrb_state*, struct mrb_irep*);

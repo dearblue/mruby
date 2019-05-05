@@ -217,7 +217,7 @@ mrb_proc_init_copy(mrb_state *mrb, mrb_value self)
 static mrb_value
 proc_arity(mrb_state *mrb, mrb_value self)
 {
-  return mrb_fixnum_value(mrb_proc_arity(mrb_proc_ptr(self)));
+  return mrb_fixnum_value(mrb_proc_arity(mrb, mrb_proc_ptr(self)));
 }
 
 /* 15.3.1.2.6  */
@@ -252,8 +252,10 @@ proc_lambda(mrb_state *mrb, mrb_value self)
   return blk;
 }
 
+#include <stdlib.h>
+
 mrb_int
-mrb_proc_arity(const struct RProc *p)
+mrb_proc_arity(mrb_state *mrb, const struct RProc *p)
 {
   struct mrb_irep *irep;
   mrb_code *pc;
@@ -270,7 +272,7 @@ mrb_proc_arity(const struct RProc *p)
     return 0;
   }
 
-  pc = irep->iseq;
+  pc = mrb_irep_getready(mrb, irep)->iseq;
   /* arity is depend on OP_ENTER */
   if (*pc != OP_ENTER) {
     return 0;

@@ -92,6 +92,8 @@ check_file_lineno(mrb_state *mrb, struct mrb_irep *irep, const char *file, uint1
   uint16_t fix_lineno;
   uint16_t i;
 
+  mrb_irep_getready(mrb, irep);
+
   for (f_idx = 0; f_idx < irep->debug_info->flen; ++f_idx) {
     const char *filename;
     info_file = irep->debug_info->files[f_idx];
@@ -430,6 +432,7 @@ mrb_debug_disable_break_all(mrb_state *mrb, mrb_debug_context *dbg)
 static mrb_bool
 check_start_pc_for_line(mrb_state *mrb, mrb_irep *irep, mrb_code *pc, uint16_t line)
 {
+  mrb_irep_getready(mrb, irep);
   if (pc > irep->iseq) {
     if (line == mrb_debug_get_line(mrb, irep, pc - irep->iseq - 1)) {
       return FALSE;

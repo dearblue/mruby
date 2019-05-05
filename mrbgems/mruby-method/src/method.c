@@ -212,7 +212,7 @@ static mrb_value
 method_arity(mrb_state *mrb, mrb_value self)
 {
   mrb_value proc = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "proc"));
-  mrb_int arity = mrb_nil_p(proc) ? -1 : mrb_proc_arity(mrb_proc_ptr(proc));
+  mrb_int arity = mrb_nil_p(proc) ? -1 : mrb_proc_arity(mrb, mrb_proc_ptr(proc));
   return mrb_fixnum_value(arity);
 }
 

@@ -84,6 +84,7 @@ fiber_init(mrb_state *mrb, mrb_value self)
   if (MRB_PROC_CFUNC_P(p)) {
     mrb_raise(mrb, E_FIBER_ERROR, "tried to create Fiber from C defined method");
   }
+  mrb_irep_getready(mrb, p->body.irep);
 
   c = (struct mrb_context*)mrb_malloc(mrb, sizeof(struct mrb_context));
   *c = mrb_context_zero;

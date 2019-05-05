@@ -106,7 +106,7 @@ mrb_proc_parameters(mrb_state *mrb, mrb_value self)
     {0, NULL, 0}
   };
   const struct RProc *proc = mrb_proc_ptr(self);
-  const struct mrb_irep *irep = proc->body.irep;
+  const struct mrb_irep *irep = mrb_irep_getready(mrb, proc->body.irep);
   mrb_aspec aspec;
   mrb_value parameters;
   int i, j;

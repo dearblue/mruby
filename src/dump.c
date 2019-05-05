@@ -792,7 +792,7 @@ dump_irep(mrb_state *mrb, mrb_irep *irep, uint8_t flags, uint8_t **bin, size_t *
   size_t section_irep_size;
   size_t section_lineno_size = 0, section_lv_size = 0;
   uint8_t *cur = NULL;
-  mrb_bool const debug_info_defined = debug_info_defined_p(irep), lv_defined = lv_defined_p(irep);
+  mrb_bool debug_info_defined, lv_defined;
   mrb_sym *lv_syms = NULL; uint32_t lv_syms_len = 0;
   mrb_sym *filenames = NULL; uint16_t filenames_len = 0;
 
@@ -800,6 +800,10 @@ dump_irep(mrb_state *mrb, mrb_irep *irep, uint8_t flags, uint8_t **bin, size_t *
     *bin = NULL;
     return MRB_DUMP_GENERAL_FAILURE;
   }
+
+  mrb_irep_getready_all(mrb, irep);
+  debug_info_defined = debug_info_defined_p(irep);
+  lv_defined = lv_defined_p(irep);
 
   section_irep_size = sizeof(struct rite_section_irep_header);
   section_irep_size += get_irep_record_size(mrb, irep);

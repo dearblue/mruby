@@ -262,6 +262,13 @@ top_proc(mrb_state *mrb, struct RProc *proc)
   return proc;
 }
 
+static inline mrb_irep *
+irep_getready_fast(mrb_state *mrb, mrb_irep *irep)
+{
+  if (mrb_irep_ready_p(irep)) { return irep; }
+  return mrb_irep_getready(mrb, irep);
+}
+
 #define CI_ACC_SKIP    -1
 #define CI_ACC_DIRECT  -2
 #define CI_ACC_RESUMED -3
@@ -345,9 +352,9 @@ ecall(mrb_state *mrb)
   if (!p) return;
   mrb_assert(!MRB_PROC_CFUNC_P(p));
   c->ensure[i] = NULL;
-  nregs = p->upper->body.irep->nregs;
+  nregs = irep_getready_fast(mrb, p->upper->body.irep)->nregs;
   if (ci->proc && !MRB_PROC_CFUNC_P(ci->proc) &&
-      ci->proc->body.irep->nregs > nregs) {
+      irep_getready_fast(mrb, ci->proc->body.irep)->nregs > nregs) {
     nregs = ci->proc->body.irep->nregs;
   }
   cioff = ci - c->cibase;
@@ -503,7 +510,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
 
       ci->proc = p;
       if (!MRB_PROC_CFUNC_P(p)) {
-        mrb_stack_extend(mrb, p->body.irep->nregs + argc);
+        mrb_stack_extend(mrb, irep_getready_fast(mrb, p->body.irep)->nregs + argc);
       }
     }
     if (voff >= 0) {
@@ -550,7 +557,7 @@ mrb_exec_irep(mrb_state *mrb, mrb_value self, struct RProc *p)
   if (MRB_PROC_CFUNC_P(p)) {
     return MRB_PROC_CFUNC(p)(mrb, self);
   }
-  nregs = p->body.irep->nregs;
+  nregs = irep_getready_fast(mrb, p->body.irep)->nregs;
   if (ci->argc < 0) keep = 3;
   else keep = ci->argc + 2;
   if (nregs < keep) {
@@ -662,7 +669,7 @@ eval_under(mrb_state *mrb, mrb_value self, mrb_value blk, struct RClass *c)
     mrb->c->stack[2] = mrb_nil_value();
     return MRB_PROC_CFUNC(p)(mrb, self);
   }
-  nregs = p->body.irep->nregs;
+  nregs = irep_getready_fast(mrb, p->body.irep)->nregs;
   if (nregs < 3) nregs = 3;
   mrb_stack_extend(mrb, nregs);
   mrb->c->stack[0] = self;
@@ -770,7 +777,7 @@ mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value 
   ci->argc = (int)argc;
   ci->target_class = c;
   ci->acc = CI_ACC_SKIP;
-  n = MRB_PROC_CFUNC_P(p) ? (int)(argc+2) : p->body.irep->nregs;
+  n = MRB_PROC_CFUNC_P(p) ? (int)(argc+2) : irep_getready_fast(mrb, p->body.irep)->nregs;
   mrb->c->stack = mrb->c->stack + n;
   mrb_stack_extend(mrb, n);
 
@@ -932,7 +939,7 @@ argnum_error(mrb_state *mrb, mrb_int num)
 MRB_API mrb_value
 mrb_vm_run(mrb_state *mrb, struct RProc *proc, mrb_value self, unsigned int stack_keep)
 {
-  mrb_irep *irep = proc->body.irep;
+  mrb_irep *irep = irep_getready_fast(mrb, proc->body.irep);
   mrb_value result;
   struct mrb_context *c = mrb->c;
   ptrdiff_t cioff = c->ci - c->cibase;
@@ -977,7 +984,7 @@ mrb_vm_exec(mrb_state *mrb, struct RProc *proc, mrb_code *pc)
 {
   /* mrb_assert(MRB_PROC_CFUNC_P(proc)) */
   mrb_code *pc0 = pc;
-  mrb_irep *irep = proc->body.irep;
+  mrb_irep *irep = irep_getready_fast(mrb, proc->body.irep);
   mrb_value *pool = irep->pool;
   mrb_sym *syms = irep->syms;
   mrb_code insn;
@@ -1284,7 +1291,7 @@ RETRY_TRY_BLOCK:
     CASE(OP_EPUSH, B) {
       struct RProc *p;
 
-      p = mrb_closure_new(mrb, irep->reps[a]);
+      p = mrb_closure_new(mrb, irep_getready_fast(mrb, irep->reps[a]));
       /* check ensure stack */
       if (mrb->c->eidx == UINT16_MAX-1) {
         mrb_value exc = mrb_exc_new_str_lit(mrb, E_RUNTIME_ERROR, "too many nested ensures");
@@ -1327,7 +1334,7 @@ RETRY_TRY_BLOCK:
         proc = mrb->c->ensure[epos+n];
         mrb->c->ensure[epos+n] = NULL;
         if (proc == NULL) continue;
-        irep = proc->body.irep;
+        irep = irep_getready_fast(mrb, proc->body.irep);
         ci = cipush(mrb);
         ci->mid = ci[-1].mid;
         ci->argc = 0;
@@ -1458,7 +1465,7 @@ RETRY_TRY_BLOCK:
           else {
             mrb_assert(!MRB_PROC_CFUNC_P(ci[-1].proc));
             proc = ci[-1].proc;
-            irep = proc->body.irep;
+            irep = irep_getready_fast(mrb, proc->body.irep);
             pool = irep->pool;
             syms = irep->syms;
           }
@@ -1473,7 +1480,7 @@ RETRY_TRY_BLOCK:
       else {
         /* setup environment for calling method */
         proc = ci->proc = MRB_METHOD_PROC(m);
-        irep = proc->body.irep;
+        irep = irep_getready_fast(mrb, proc->body.irep);
         pool = irep->pool;
         syms = irep->syms;
         mrb_stack_extend(mrb, (argc < 0 && irep->nregs < 3) ? 3 : irep->nregs);
@@ -1514,7 +1521,7 @@ RETRY_TRY_BLOCK:
         regs[ci->acc] = recv;
         pc = ci->pc;
         cipop(mrb);
-        irep = mrb->c->ci->proc->body.irep;
+        irep = irep_getready_fast(mrb, mrb->c->ci->proc->body.irep);
         pool = irep->pool;
         syms = irep->syms;
         JUMP;
@@ -1522,7 +1529,7 @@ RETRY_TRY_BLOCK:
       else {
         /* setup environment for calling method */
         proc = m;
-        irep = m->body.irep;
+        irep = irep_getready_fast(mrb, m->body.irep);
         if (!irep) {
           mrb->c->stack[0] = mrb_nil_value();
           a = 0;
@@ -1644,7 +1651,7 @@ RETRY_TRY_BLOCK:
           else {
             mrb_assert(!MRB_PROC_CFUNC_P(ci[-1].proc));
             proc = ci[-1].proc;
-            irep = proc->body.irep;
+            irep = irep_getready_fast(mrb, proc->body.irep);
             pool = irep->pool;
             syms = irep->syms;
           }
@@ -1662,7 +1669,7 @@ RETRY_TRY_BLOCK:
 
         /* setup environment for calling method */
         proc = ci->proc = MRB_METHOD_PROC(m);
-        irep = proc->body.irep;
+        irep = irep_getready_fast(mrb, proc->body.irep);
         pool = irep->pool;
         syms = irep->syms;
         mrb_stack_extend(mrb, (argc < 0 && irep->nregs < 3) ? 3 : irep->nregs);
@@ -1990,7 +1997,7 @@ RETRY_TRY_BLOCK:
       L_RESCUE:
         if (ci->ridx == 0) goto L_STOP;
         proc = ci->proc;
-        irep = proc->body.irep;
+        irep = irep_getready_fast(mrb, proc->body.irep);
         pool = irep->pool;
         syms = irep->syms;
         if (ci < ci0) {
@@ -2151,7 +2158,7 @@ RETRY_TRY_BLOCK:
         ci = mrb->c->ci;
         DEBUG(fprintf(stderr, "from :%s\n", mrb_sym2name(mrb, ci->mid)));
         proc = mrb->c->ci->proc;
-        irep = proc->body.irep;
+        irep = irep_getready_fast(mrb, proc->body.irep);
         pool = irep->pool;
         syms = irep->syms;
 
@@ -2581,7 +2588,7 @@ RETRY_TRY_BLOCK:
     L_MAKE_LAMBDA:
     {
       struct RProc *p;
-      mrb_irep *nirep = irep->reps[b];
+      mrb_irep *nirep = irep_getready_fast(mrb, irep->reps[b]);
 
       if (c & OP_L_CAPTURE) {
         p = mrb_closure_new(mrb, nirep);
@@ -2660,7 +2667,7 @@ RETRY_TRY_BLOCK:
       mrb_callinfo *ci;
       mrb_value recv = regs[a];
       struct RProc *p;
-      mrb_irep *nirep = irep->reps[b];
+      mrb_irep *nirep = irep_getready_fast(mrb, irep->reps[b]);
 
       /* prepare closure */
       p = mrb_proc_new(mrb, nirep);
@@ -2684,7 +2691,7 @@ RETRY_TRY_BLOCK:
       /* setup block to call */
       ci->proc = p;
 
-      irep = p->body.irep;
+      irep = irep_getready_fast(mrb, p->body.irep);
       pool = irep->pool;
       syms = irep->syms;
       mrb_stack_extend(mrb, irep->nregs);
