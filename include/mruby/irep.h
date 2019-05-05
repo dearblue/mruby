@@ -32,16 +32,30 @@ typedef struct mrb_irep {
   uint16_t nregs;          /* Number of register variables */
   uint8_t flags;
 
-  mrb_code *iseq;
-  mrb_value *pool;
-  mrb_sym *syms;
-  struct mrb_irep **reps;
+  union {
+    struct {
+      mrb_code *iseq;
+      mrb_value *pool;
+      mrb_sym *syms;
+      struct mrb_irep **reps;
 
-  struct mrb_locals *lv;
-  /* debug info */
-  struct mrb_irep_debug_info* debug_info;
+      struct mrb_locals *lv;
+      /* debug info */
+      struct mrb_irep_debug_info* debug_info;
 
-  uint16_t ilen, plen, slen, rlen;
+      uint16_t ilen, plen, slen, rlen;
+    };
+
+    struct {
+      /* The each size of record is able to get from each record bin */
+      const uint8_t *irep_record;
+      const uint8_t *lvar_record;
+      const uint8_t *debug_record;
+      void          *lvar_symbols;     /* struct symbol_table in src/load.c */
+      void          *debug_filenames;  /* struct symbol_table in src/load.c */
+    } lazy;
+  };
+
   uint32_t refcnt;
 } mrb_irep;
 
