@@ -123,6 +123,9 @@
 /* fixed size state atexit stack */
 //#define MRB_FIXED_STATE_ATEXIT_STACK
 
+/* frequency of checking interrupt handlers (1:high frequency ~ 16:low frequency) */
+//#define MRB_INTERRUPT_TICK_BIT 8
+
 /* -DMRB_DISABLE_XXXX to drop following features */
 //#define MRB_DISABLE_STDIO /* use of stdio */
 

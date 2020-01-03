@@ -209,6 +209,7 @@ struct mrb_cache_entry {
 #endif
 
 struct mrb_jmpbuf;
+struct mrb_interrupt_node;
 
 typedef void (*mrb_atexit_func)(struct mrb_state*);
 
@@ -257,6 +258,8 @@ typedef struct mrb_state {
 #ifndef MRB_ENABLE_SYMBOLL_ALL
   char symbuf[8];               /* buffer for small symbol names */
 #endif
+
+  struct mrb_interrupt_node *interrupt_root;
 
 #ifdef MRB_ENABLE_DEBUG_HOOK
   void (*code_fetch_hook)(struct mrb_state* mrb, struct mrb_irep *irep, const mrb_code *pc, mrb_value *regs);
@@ -1368,6 +1371,68 @@ MRB_API void mrb_show_version(mrb_state *mrb);
 MRB_API void mrb_show_copyright(mrb_state *mrb);
 
 MRB_API mrb_value mrb_format(mrb_state *mrb, const char *format, ...);
+
+enum mrb_interrupt_flags {
+  /** ジャンプや分岐命令で割り込みます。 */
+  MRB_INTERRUPT_BRANCH          = 0x0001,
+
+  /** メソッドを呼ぶ前後で割り込みます。 */
+  MRB_INTERRUPT_METHOD          = 0x0002,
+
+  /** 利用者定義の割り込み番号です。 */
+  MRB_INTERRUPT_USER1           = 0x0101,
+  MRB_INTERRUPT_USER2           = 0x0102,
+  MRB_INTERRUPT_USER3           = 0x0103,
+  MRB_INTERRUPT_USER4           = 0x0104,
+
+  MRB_INTERRUPT_USERS           = MRB_INTERRUPT_USER1 |
+                                  MRB_INTERRUPT_USER2 |
+                                  MRB_INTERRUPT_USER3 |
+                                  MRB_INTERRUPT_USER4,
+
+  MRB_INTERRUPT_MASK            = MRB_INTERRUPT_BRANCH |
+                                  MRB_INTERRUPT_METHOD |
+                                  MRB_INTERRUPT_USERS,
+};
+
+enum mrb_interrupt_status {
+  /** Remove this handler when return from the interrupt. */
+  MRB_INTERRUPT_REMOVE          = 0x0000,
+
+  /** Keep this handler when return from the interrupt. */
+  MRB_INTERRUPT_KEEP            = 0x0001
+};
+
+/**
+ * IMPORTANT: Do not switch the Fiber.
+ *
+ * @param mrb The current mruby state.
+ * @param udata User data associated with this function.
+ * @param flags The bit-flags of `enum mrb_interrupt_flags`.
+ * @return [uint32_t] The bit-flags of `enum mrb_interrupt_status`.
+ */
+typedef uint32_t mrb_interrupt_func(struct mrb_state *mrb, void *udata, uint32_t flags);
+
+/**
+ * interrupt handlerを最後に追加します。
+ * ハンドラがすでに登録されている場合、udata を更新するだけです。
+ * ハンドラが NULL の場合、それ以上の処理を行わず戻ります。
+ */
+MRB_API void mrb_interrupt_regist(mrb_state *mrb, mrb_interrupt_func *handler, void *udata);
+
+/**
+ * 一致するinterrupt handlerを削除します。
+ * NULL か一致しなければ何もしないで戻ります。
+ */
+MRB_API void mrb_interrupt_unregist(mrb_state *mrb, mrb_interrupt_func *handler);
+
+/**
+ * interrupt handlerを呼びます。
+ * 内部で例外が発生して、関数から処理が戻らない可能性を考慮して下さい。
+ *
+ * mruby vm を経由していない呼び出し (具体的には `mrb->jmp` が `NULL`) の場合に例外が発生すると、`mrb->exc` を保持したまま関数から戻ります。
+ */
+MRB_API void mrb_interrupt_check(mrb_state *mrb, uint32_t flags);
 
 #if 0
 /* memcpy and memset does not work with gdb reverse-next on my box */

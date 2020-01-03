@@ -325,6 +325,139 @@ cipop(mrb_state *mrb)
   return c->ci;
 }
 
+#ifndef MRB_INTERRUPT_TICK_BIT
+# define MRB_INTERRUPT_TICK_BIT 8
+#endif
+
+struct mrb_interrupt_node {
+  struct mrb_interrupt_node *next;
+  uint16_t tick : MRB_INTERRUPT_TICK_BIT; /* only the first node is used for the entire interrupt */
+  uint16_t : 0; /* paddings for the bit field */
+  mrb_bool active : 1;
+  mrb_interrupt_func *handler;
+  void *udata;
+};
+
+static struct mrb_interrupt_node *
+interrupt_find_node(mrb_state *mrb, mrb_interrupt_func *handler, struct mrb_interrupt_node ***nextp)
+{
+  struct mrb_interrupt_node *node;
+
+  *nextp = &mrb->interrupt_root;
+  for (node = mrb->interrupt_root; node != NULL; node = node->next) {
+    if (node->handler == handler) return node;
+    *nextp = &node->next;
+  }
+
+  return NULL;
+}
+
+MRB_API void
+mrb_interrupt_regist(mrb_state *mrb, mrb_interrupt_func *handler, void *udata)
+{
+  struct mrb_interrupt_node *node, **nextp;
+
+  if (handler == NULL) return;
+
+  if ((node = interrupt_find_node(mrb, handler, &nextp)) != NULL) {
+    node->udata = udata;
+  }
+  else {
+    node = *nextp = (struct mrb_interrupt_node *)mrb_malloc(mrb, sizeof(struct mrb_interrupt_node));
+    node->next = NULL;
+    node->tick = 1;
+    node->active = FALSE;
+    node->handler = handler;
+    node->udata = udata;
+  }
+}
+
+static struct mrb_interrupt_node *
+interrupt_unregist(mrb_state *mrb, struct mrb_interrupt_node *node, struct mrb_interrupt_node **nextp)
+{
+  struct mrb_interrupt_node *nextnode = node->next;
+
+  if (nextnode) nextnode->tick = node->tick;
+  mrb_free(mrb, node);
+  *nextp = nextnode;
+
+  return nextnode;
+}
+
+MRB_API void
+mrb_interrupt_unregist(mrb_state *mrb, mrb_interrupt_func *handler)
+{
+  struct mrb_interrupt_node *node, **nextp;
+
+  if (handler == NULL) return;
+
+  if ((node = interrupt_find_node(mrb, handler, &nextp)) != NULL) {
+    interrupt_unregist(mrb, node, nextp);
+  }
+}
+
+static void
+interrupt_check_effective(mrb_state *mrb, struct mrb_interrupt_node *node, uint32_t flags)
+{
+  struct mrb_interrupt_node temp;
+  struct mrb_interrupt_node **nextp = &mrb->interrupt_root;
+  struct mrb_jmpbuf c_jmp;
+  struct mrb_jmpbuf *prev_jmp = mrb->jmp;
+
+  MRB_TRY(&c_jmp) {
+    mrb->jmp = &c_jmp;
+    for (; node != NULL; node = node->next) {
+      if (!node->active) {
+        node->active = TRUE;
+        if (node->handler(mrb, node->udata, flags) & MRB_INTERRUPT_KEEP) {
+          node->active = FALSE;
+          nextp = &node->next;
+        }
+        else {
+          temp.next = interrupt_unregist(mrb, node, nextp);
+          node = &temp;
+        }
+      }
+    }
+    mrb->jmp = prev_jmp;
+  }
+  MRB_CATCH(&c_jmp) {
+    if (node) node->active = FALSE;
+    mrb->jmp = prev_jmp;
+    /* この関数は mruby 例外機構の外 (例えば main() 関数) から呼ばれたかも
+     * しれないので、mrb->jmp が NULL である可能性を考慮する */
+    if (prev_jmp) MRB_THROW(prev_jmp);
+  }
+  MRB_END_EXC(&c_jmp);
+}
+
+static void
+interrupt_step_check(mrb_state *mrb, uint32_t flags)
+{
+  struct mrb_interrupt_node *node = mrb->interrupt_root;
+
+  if (node && node->tick ++ == 0) {
+    interrupt_check_effective(mrb, node, flags);
+  }
+}
+
+static void
+interrupt_check(mrb_state *mrb, uint32_t flags)
+{
+  struct mrb_interrupt_node *node = mrb->interrupt_root;
+
+  if (node) {
+    node->tick = 1;
+    interrupt_check_effective(mrb, node, flags);
+  }
+}
+
+MRB_API void
+mrb_interrupt_check(mrb_state *mrb, uint32_t flags)
+{
+  interrupt_check(mrb, flags & MRB_INTERRUPT_MASK);
+}
+
 void mrb_exc_set(mrb_state *mrb, mrb_value exc);
 static mrb_value mrb_run(mrb_state *mrb, struct RProc* proc, mrb_value self);
 
@@ -415,6 +548,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
     if (argc < 0) {
       mrb_raisef(mrb, E_ARGUMENT_ERROR, "negative argc for funcall (%i)", argc);
     }
+    interrupt_check(mrb, MRB_INTERRUPT_METHOD);
     c = mrb_class(mrb, self);
     m = mrb_method_search_vm(mrb, &c, mid);
     if (MRB_METHOD_UNDEF_P(m)) {
@@ -466,6 +600,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
       ci->acc = CI_ACC_DIRECT;
       val = MRB_METHOD_CFUNC(m)(mrb, self);
       cipop(mrb);
+      interrupt_check(mrb, MRB_INTERRUPT_METHOD);
     }
     else {
       ci->acc = CI_ACC_SKIP;
@@ -492,7 +627,10 @@ mrb_exec_irep(mrb_state *mrb, mrb_value self, struct RProc *p)
   mrb->c->stack[0] = self;
   ci->proc = p;
   if (MRB_PROC_CFUNC_P(p)) {
-    return MRB_PROC_CFUNC(p)(mrb, self);
+    mrb_value result;
+    result = MRB_PROC_CFUNC(p)(mrb, self);
+    interrupt_check(mrb, MRB_INTERRUPT_METHOD);
+    return result;
   }
   nregs = p->body.irep->nregs;
   if (ci->argc < 0) keep = 3;
@@ -567,10 +705,13 @@ mrb_f_send(mrb_state *mrb, mrb_value self)
   }
 
   if (MRB_METHOD_CFUNC_P(m)) {
+    mrb_value result;
     if (MRB_METHOD_PROC_P(m)) {
       ci->proc = MRB_METHOD_PROC(m);
     }
-    return MRB_METHOD_CFUNC(m)(mrb, self);
+    result = MRB_METHOD_CFUNC(m)(mrb, self);
+    interrupt_check(mrb, MRB_INTERRUPT_METHOD);
+    return result;
   }
   return mrb_exec_irep(mrb, self, MRB_METHOD_PROC(m));
 }
@@ -595,11 +736,14 @@ eval_under(mrb_state *mrb, mrb_value self, mrb_value blk, struct RClass *c)
   ci->argc = 1;
   ci->mid = ci[-1].mid;
   if (MRB_PROC_CFUNC_P(p)) {
+    mrb_value result;
     mrb_stack_extend(mrb, 3);
     mrb->c->stack[0] = self;
     mrb->c->stack[1] = self;
     mrb->c->stack[2] = mrb_nil_value();
-    return MRB_PROC_CFUNC(p)(mrb, self);
+    result = MRB_PROC_CFUNC(p)(mrb, self);
+    interrupt_check(mrb, MRB_INTERRUPT_METHOD);
+    return result;
   }
   nregs = p->body.irep->nregs;
   if (nregs < 3) nregs = 3;
@@ -677,6 +821,7 @@ mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value 
   if (mrb_nil_p(b)) {
     mrb_raise(mrb, E_ARGUMENT_ERROR, "no block given");
   }
+  interrupt_check(mrb, MRB_INTERRUPT_METHOD);
   ci = mrb->c->ci;
   n = ci_nregs(ci);
   if (ci - mrb->c->cibase > MRB_FUNCALL_DEPTH_MAX) {
@@ -706,6 +851,7 @@ mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value 
   if (MRB_PROC_CFUNC_P(p)) {
     val = MRB_PROC_CFUNC(p)(mrb, self);
     cipop(mrb);
+    interrupt_check(mrb, MRB_INTERRUPT_METHOD);
   }
   else {
     val = mrb_run(mrb, p, self);
@@ -1234,10 +1380,12 @@ RETRY_TRY_BLOCK:
     }
 
     CASE(OP_JMP, S) {
+      interrupt_step_check(mrb, MRB_INTERRUPT_BRANCH);
       pc = irep->iseq+a;
       JUMP;
     }
     CASE(OP_JMPIF, BS) {
+      interrupt_step_check(mrb, MRB_INTERRUPT_BRANCH);
       if (mrb_test(regs[a])) {
         pc = irep->iseq+b;
         JUMP;
@@ -1245,6 +1393,7 @@ RETRY_TRY_BLOCK:
       NEXT;
     }
     CASE(OP_JMPNOT, BS) {
+      interrupt_step_check(mrb, MRB_INTERRUPT_BRANCH);
       if (!mrb_test(regs[a])) {
         pc = irep->iseq+b;
         JUMP;
@@ -1252,6 +1401,7 @@ RETRY_TRY_BLOCK:
       NEXT;
     }
     CASE(OP_JMPNIL, BS) {
+      interrupt_step_check(mrb, MRB_INTERRUPT_BRANCH);
       if (mrb_nil_p(regs[a])) {
         pc = irep->iseq+b;
         JUMP;
@@ -1268,6 +1418,7 @@ RETRY_TRY_BLOCK:
         mrb_assert(a >= 0 && a < irep->ilen);
       }
       CHECKPOINT_MAIN(RBREAK_TAG_JUMP) {
+        interrupt_step_check(mrb, MRB_INTERRUPT_BRANCH);
         ch = catch_handler_find(mrb, mrb->c->ci, pc, MRB_CATCH_FILTER_ENSURE);
         if (ch) {
           /* avoiding a jump from a catch handler into the same handler */
@@ -1382,6 +1533,8 @@ RETRY_TRY_BLOCK:
 
       mrb_assert(bidx < irep->nregs);
 
+      interrupt_step_check(mrb, MRB_INTERRUPT_METHOD);
+
       recv = regs[a];
       blk = regs[bidx];
       if (!mrb_nil_p(blk) && !mrb_proc_p(blk)) {
@@ -1432,6 +1585,7 @@ RETRY_TRY_BLOCK:
         }
         mrb_gc_arena_restore(mrb, ai);
         mrb_gc_arena_shrink(mrb, ai);
+        interrupt_check(mrb, MRB_INTERRUPT_METHOD);
         if (mrb->exc) goto L_RAISE;
         ci = mrb->c->ci;
         if (mrb_proc_p(blk)) {
@@ -1489,6 +1643,7 @@ RETRY_TRY_BLOCK:
         recv = MRB_PROC_CFUNC(m)(mrb, recv);
         mrb_gc_arena_restore(mrb, ai);
         mrb_gc_arena_shrink(mrb, ai);
+        interrupt_check(mrb, MRB_INTERRUPT_METHOD);
         if (mrb->exc) goto L_RAISE;
         /* pop stackpos */
         ci = mrb->c->ci;
@@ -1613,6 +1768,7 @@ RETRY_TRY_BLOCK:
         }
         v = MRB_METHOD_CFUNC(m)(mrb, recv);
         mrb_gc_arena_restore(mrb, ai);
+        interrupt_check(mrb, MRB_INTERRUPT_METHOD);
         if (mrb->exc) goto L_RAISE;
         ci = mrb->c->ci;
         mrb_assert(!mrb_break_p(v));
@@ -2152,6 +2308,7 @@ RETRY_TRY_BLOCK:
 
         if (mrb->c->vmexec && !ci->target_class) {
           mrb_gc_arena_restore(mrb, ai);
+          interrupt_check(mrb, MRB_INTERRUPT_METHOD);
           mrb->c->vmexec = FALSE;
           mrb->jmp = prev_jmp;
           return v;
@@ -2160,6 +2317,7 @@ RETRY_TRY_BLOCK:
         ci = cipop(mrb);
         if (acc == CI_ACC_SKIP || acc == CI_ACC_DIRECT) {
           mrb_gc_arena_restore(mrb, ai);
+          interrupt_check(mrb, MRB_INTERRUPT_METHOD);
           mrb->jmp = prev_jmp;
           return v;
         }
