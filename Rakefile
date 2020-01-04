@@ -28,6 +28,7 @@ load "#{MRUBY_ROOT}/mrblib/mrblib.rake"
 
 load "#{MRUBY_ROOT}/tasks/mrbgems.rake"
 load "#{MRUBY_ROOT}/tasks/libmruby.rake"
+load "#{MRUBY_ROOT}/tasks/crctable.rake"
 
 load "#{MRUBY_ROOT}/tasks/benchmark.rake"
 

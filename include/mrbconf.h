@@ -169,6 +169,10 @@
 #  define MRB_HEAP_PAGE_SIZE 256
 # endif
 
+# if !defined(MRB_CRC_DEFAULT) && !defined(MRB_CRC_FAST)
+#  define MRB_CRC_SMALL
+# endif
+
 /* A profile for default mruby */
 #elif defined(MRB_BASELINE_PROFILE)
 
@@ -190,6 +194,10 @@
 #  define MRB_HEAP_PAGE_SIZE 4096
 # endif
 
+# if !defined(MRB_CRC_DEFAULT) && !defined(MRB_CRC_SMALL)
+#  define MRB_CRC_FAST
+# endif
+
 /* A profile for server; mruby vm is long life */
 #elif defined(MRB_HIGH_PROFILE)
 # ifndef MRB_METHOD_CACHE
@@ -206,6 +214,10 @@
 
 # ifndef MRB_HEAP_PAGE_SIZE
 #  define MRB_HEAP_PAGE_SIZE 4096
+# endif
+
+# if !defined(MRB_CRC_DEFAULT) && !defined(MRB_CRC_SMALL)
+#  define MRB_CRC_FAST
 # endif
 #endif
 
