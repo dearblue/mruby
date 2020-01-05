@@ -18,35 +18,37 @@ class String
       block.call(self)
       return self
     end
-    raise TypeError unless separator.is_a?(String)
 
-    paragraph_mode = false
-    if separator.empty?
+    case
+    when separator == ""
       paragraph_mode = true
       separator = "\n\n"
+    when separator.respond_to?(:__str_index_in)
+      paragraph_mode = false
+    else
+      raise TypeError, "expect String or Regexp"
     end
+
     start = 0
     string = dup
-    self_len = length
-    sep_len = separator.length
+    self_len = bytesize
     should_yield_subclass_instances = self.class != String
+    regs = []
 
-    while (pointer = string.index(separator, start))
-      pointer += sep_len
-      pointer += 1 while paragraph_mode && string[pointer] == "\n"
-      if should_yield_subclass_instances
-        block.call(self.class.new(string[start, pointer - start]))
+    while true
+      if separator.__str_index_in(string, start, regs)
+        pointer = regs[1]
+        pointer += 1 while paragraph_mode && string.byteslice(pointer, 1) == "\n"
       else
-        block.call(string[start, pointer - start])
+        break unless start > 0 && start < self_len
+        pointer = self_len
+      end
+      if should_yield_subclass_instances
+        block.call(self.class.new(string.byteslice(start, pointer - start)))
+      else
+        block.call(string.byteslice(start, pointer - start))
       end
       start = pointer
-    end
-    return self if start == self_len
-
-    if should_yield_subclass_instances
-      block.call(self.class.new(string[start, self_len - start]))
-    else
-      block.call(string[start, self_len - start])
     end
     self
   end

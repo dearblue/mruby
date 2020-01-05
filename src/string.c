@@ -2860,6 +2860,104 @@ mrb_str_byteslice(mrb_state *mrb, mrb_value str)
   }
 }
 
+/*
+ *  call-seq:
+ *    pattern.__str_index_in(str, off, register) -> register or nil
+ *
+ *  文字列 <tt>str</tt> のバイト位置 <tt>off</tt> から始まる <tt>pattern</tt> に一致するバイト位置を、配列オブジェクトである <tt>register</tt> に格納します。
+ *
+ *  <tt>pattern</tt> に一致すれば <tt>register</tt> を返します。
+ *  一致しなければ <tt>nil</tt> を返します。
+ *
+ *  <tt>pattern</tt> に一致した場合、バイト位置 <tt>[match_begin, match_end]</tt> を格納します。
+ *  一致長が <tt>0</tt> の場合、バイト位置 <tt>[next_char, next_char]</tt> を格納します。
+ *
+ *  パターンとなるオブジェクトにこのメソッドを定義することで、例えば Regexp の実装を簡略化することが出来ます。
+ */
+static mrb_value
+mrb_str_index_in(mrb_state *mrb, mrb_value pat)
+{
+  const char *patptr = RSTRING_PTR(pat);
+  mrb_int patlen = RSTRING_LEN(pat);
+  mrb_int match;
+  mrb_int pre, post;
+
+  const char *str;
+  mrb_int len;
+  mrb_int off;
+  mrb_value regs;
+  mrb_get_args(mrb, "siA", &str, &len, &off, &regs);
+
+  if (off < 0 || off >= len) {
+    return mrb_nil_value();
+  }
+
+  if (patlen > 0) {
+    match = mrb_memsearch(patptr, patlen, str + off, len - off);
+    if (match < 0) {
+      return mrb_nil_value();
+    }
+
+    off += match;
+    pre = off;
+    post = off + patlen;
+  }
+  else {
+#ifdef MRB_UTF8_STRING
+    off += utf8len(str + off, str + len);
+#else
+    off ++;
+#endif
+    pre = off;
+    post = off;
+  }
+
+  mrb_ary_modify(mrb, mrb_ary_ptr(regs));
+  ARY_SET_LEN(mrb_ary_ptr(regs), 0);
+  mrb_ary_push(mrb, regs, mrb_fixnum_value(pre));
+  mrb_ary_push(mrb, regs, mrb_fixnum_value(post));
+
+  return regs;
+}
+
+typedef mrb_bool str_match_func(int ch);
+
+static mrb_value
+str_match_common(mrb_state *mrb, mrb_value str, str_match_func *match)
+{
+  const char *beg = RSTRING_PTR(str);
+  mrb_int len = RSTRING_LEN(str);
+  const char *end = beg + len;
+  const char *p;
+  mrb_int off;
+
+  mrb_get_args(mrb, "i", &off);
+
+  if (off < 0 || off >= len) {
+    return mrb_nil_value();
+  }
+
+  for (p = beg + off; p < end; p ++) {
+    if (match(*p)) {
+      break;
+    }
+  }
+
+  return mrb_fixnum_value(p - beg);
+}
+
+static mrb_bool
+str_skip_newline(int ch)
+{
+  return (mrb_bool)(ch != '\n');
+}
+
+static mrb_value
+mrb_str_skip_newline(mrb_state *mrb, mrb_value str)
+{
+  return str_match_common(mrb, str, str_skip_newline);
+}
+
 /* ---------------------------*/
 void
 mrb_init_string(mrb_state *mrb)
@@ -2921,6 +3019,9 @@ mrb_init_string(mrb_state *mrb)
   mrb_define_method(mrb, s, "getbyte",         mrb_str_getbyte,         MRB_ARGS_REQ(1));
   mrb_define_method(mrb, s, "setbyte",         mrb_str_setbyte,         MRB_ARGS_REQ(2));
   mrb_define_method(mrb, s, "byteslice",       mrb_str_byteslice,       MRB_ARGS_ARG(1,1));
+
+  mrb_define_method(mrb, s, "__str_index_in",  mrb_str_index_in,        MRB_ARGS_ANY());
+  mrb_define_method(mrb, s, "__skip_newline",  mrb_str_skip_newline,    MRB_ARGS_ANY());
 }
 
 #ifndef MRB_WITHOUT_FLOAT
