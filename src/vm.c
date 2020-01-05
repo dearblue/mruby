@@ -420,8 +420,8 @@ ci_nregs(mrb_callinfo *ci)
   return n;
 }
 
-MRB_API mrb_value
-mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk)
+mrb_value
+mrb_funcall_with_refinement(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk, struct RArray *refine)
 {
   mrb_value val;
   int ai = mrb_gc_arena_save(mrb);
@@ -433,7 +433,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
     MRB_TRY(&c_jmp) {
       mrb->jmp = &c_jmp;
       /* recursive call */
-      val = mrb_funcall_with_block(mrb, self, mid, argc, argv, blk);
+      val = mrb_funcall_with_refinement(mrb, self, mid, argc, argv, blk, refine);
       mrb->jmp = 0;
     }
     MRB_CATCH(&c_jmp) { /* error */
@@ -523,9 +523,15 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
 }
 
 MRB_API mrb_value
+mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk)
+{
+  return mrb_funcall_with_refinement(mrb, self, mid, argc, argv, blk, NULL);
+}
+
+MRB_API mrb_value
 mrb_funcall_argv(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv)
 {
-  return mrb_funcall_with_block(mrb, self, mid, argc, argv, mrb_nil_value());
+  return mrb_funcall_with_refinement(mrb, self, mid, argc, argv, mrb_nil_value(), NULL);
 }
 
 #define DECOMPOSE32(n) (((n) >> 24) & 0xff), (((n) >> 16) & 0xff), (((n) >> 8) & 0xff), (((n) >> 0) & 0xff)
