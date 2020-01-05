@@ -143,6 +143,123 @@ class String
 #  end
 
   ##
+  # call-seq:
+  #   str.split(separator=nil, [limit])   => anArray
+  #
+  # Divides +str+ into substrings based on a delimiter, returning an array
+  # of these substrings.
+  #
+  # If +separator+ is a <code>String</code>, then its contents are used as
+  # the delimiter when splitting +str+. If +separator+ is a single
+  # space, +str+ is split on whitespace, with leading whitespace and runs
+  # of contiguous whitespace characters ignored.
+  #
+  # If +separator+ is omitted or <code>nil</code> (which is the default),
+  # +str+ is split on whitespace as if ' ' were specified.
+  #
+  # If the +limit+ parameter is omitted, trailing null fields are
+  # suppressed. If +limit+ is a positive number, at most that number of
+  # fields will be returned (if +limit+ is <code>1</code>, the entire
+  # string is returned as the only entry in an array). If negative, there is no
+  # limit to the number of fields returned, and trailing null fields are not
+  # suppressed.
+  #
+  #   " now's  the time".split        #=> ["now's", "the", "time"]
+  #   " now's  the time".split(' ')   #=> ["now's", "the", "time"]
+  #
+  #   "mellow yellow".split("ello")   #=> ["m", "w y", "w"]
+  #   "1,2,,3,4,,".split(',')         #=> ["1", "2", "", "3", "4"]
+  #   "1,2,,3,4,,".split(',', 4)      #=> ["1", "2", "", "3,4,,"]
+  #   "1,2,,3,4,,".split(',', -4)     #=> ["1", "2", "", "3", "4", "", ""]
+  #
+  # ISO 15.2.10.5.35
+  def split(*args, &block)
+    unless block
+      result = []
+      split(*args) { |sub| result << sub }
+      return result
+    end
+
+    pat = args[0]
+    case args.size
+    when 0, 1
+      limit = nil
+    when 2
+      limit = args[1].__to_int
+    else
+      raise ArgumentError, "wrong number of arguments"
+    end
+
+    if pat.nil? || pat == " "
+      pat = nil
+    else
+      unless pat.respond_to?(:__str_index_in)
+        raise TypeError, "expected String or Regexp"
+      end
+    end
+
+    if limit == 1
+      yield self if size > 0
+      return self
+    end
+
+    beg = 0
+    term = bytesize
+    blanks = 0
+
+    if pat
+      regs = []
+      while true
+        unless regs = pat.__str_index_in(self, beg, regs)
+          break unless term > 0 && beg < term
+          regs = [term, term]
+        end
+        (pre, post) = regs
+        if beg == pre
+          blanks += 1
+        else
+          blanks.times { yield "" }
+          blanks = 0
+          yield byteslice(beg, pre - beg)
+        end
+
+        beg = post
+        if limit && limit > 1
+          limit -= 1
+          break unless limit > 1
+        end
+
+        blanks += 1 if (pre != post || pat == "") && post == term
+      end
+    else
+      while true
+        unless (pre = __skip_whitespace(beg)) && (post = __search_whitespace(pre))
+          beg = term
+          yield "" if limit
+          break
+        end
+        yield byteslice(pre, post - pre)
+
+        beg = post
+        if limit && limit > 1
+          limit -= 1
+          unless limit > 1
+            beg = __skip_whitespace(beg)
+            break
+          end
+        end
+      end
+    end
+
+    if limit
+      blanks.times { yield "" }
+      yield byteslice(beg, term - beg) if beg && beg < term
+    end
+
+    self
+  end
+
+  ##
   # Replace only the first match of +pattern+ with
   # +replacement+. Call block (if given) for each
   # match and replace +pattern+ with the value of the

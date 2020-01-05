@@ -145,15 +145,6 @@ str_with_class(struct RString *s, mrb_value obj)
   s->c = mrb_str_ptr(obj)->c;
 }
 
-static mrb_value
-mrb_str_new_empty(mrb_state *mrb, mrb_value str)
-{
-  struct RString *s = str_new(mrb, 0, 0);
-
-  str_with_class(s, str);
-  return mrb_obj_value(s);
-}
-
 MRB_API mrb_value
 mrb_str_new_capa(mrb_state *mrb, size_t capa)
 {
@@ -2101,147 +2092,6 @@ mrb_str_rindex(mrb_state *mrb, mrb_value str)
   return mrb_nil_value();
 }
 
-/* 15.2.10.5.35 */
-
-/*
- *  call-seq:
- *     str.split(separator=nil, [limit])   => anArray
- *
- *  Divides <i>str</i> into substrings based on a delimiter, returning an array
- *  of these substrings.
- *
- *  If <i>separator</i> is a <code>String</code>, then its contents are used as
- *  the delimiter when splitting <i>str</i>. If <i>separator</i> is a single
- *  space, <i>str</i> is split on whitespace, with leading whitespace and runs
- *  of contiguous whitespace characters ignored.
- *
- *  If <i>separator</i> is omitted or <code>nil</code> (which is the default),
- *  <i>str</i> is split on whitespace as if ' ' were specified.
- *
- *  If the <i>limit</i> parameter is omitted, trailing null fields are
- *  suppressed. If <i>limit</i> is a positive number, at most that number of
- *  fields will be returned (if <i>limit</i> is <code>1</code>, the entire
- *  string is returned as the only entry in an array). If negative, there is no
- *  limit to the number of fields returned, and trailing null fields are not
- *  suppressed.
- *
- *     " now's  the time".split        #=> ["now's", "the", "time"]
- *     " now's  the time".split(' ')   #=> ["now's", "the", "time"]
- *
- *     "mellow yellow".split("ello")   #=> ["m", "w y", "w"]
- *     "1,2,,3,4,,".split(',')         #=> ["1", "2", "", "3", "4"]
- *     "1,2,,3,4,,".split(',', 4)      #=> ["1", "2", "", "3,4,,"]
- *     "1,2,,3,4,,".split(',', -4)     #=> ["1", "2", "", "3", "4", "", ""]
- */
-
-static mrb_value
-mrb_str_split_m(mrb_state *mrb, mrb_value str)
-{
-  mrb_int argc;
-  mrb_value spat = mrb_nil_value();
-  enum {awk, string} split_type = string;
-  mrb_int i = 0;
-  mrb_int beg;
-  mrb_int end;
-  mrb_int lim = 0;
-  mrb_bool lim_p;
-  mrb_value result, tmp;
-
-  argc = mrb_get_args(mrb, "|oi", &spat, &lim);
-  lim_p = (lim > 0 && argc == 2);
-  if (argc == 2) {
-    if (lim == 1) {
-      if (RSTRING_LEN(str) == 0)
-        return mrb_ary_new_capa(mrb, 0);
-      return mrb_ary_new_from_values(mrb, 1, &str);
-    }
-    i = 1;
-  }
-
-  if (argc == 0 || mrb_nil_p(spat)) {
-    split_type = awk;
-  }
-  else if (!mrb_string_p(spat)) {
-    mrb_raise(mrb, E_TYPE_ERROR, "expected String");
-  }
-  else if (RSTRING_LEN(spat) == 1 && RSTRING_PTR(spat)[0] == ' ') {
-    split_type = awk;
-  }
-
-  result = mrb_ary_new(mrb);
-  beg = 0;
-  if (split_type == awk) {
-    mrb_bool skip = TRUE;
-    mrb_int idx = 0;
-    mrb_int str_len = RSTRING_LEN(str);
-    unsigned int c;
-    int ai = mrb_gc_arena_save(mrb);
-
-    idx = end = beg;
-    while (idx < str_len) {
-      c = (unsigned char)RSTRING_PTR(str)[idx++];
-      if (skip) {
-        if (ISSPACE(c)) {
-          beg = idx;
-        }
-        else {
-          end = idx;
-          skip = FALSE;
-          if (lim_p && lim <= i) break;
-        }
-      }
-      else if (ISSPACE(c)) {
-        mrb_ary_push(mrb, result, mrb_str_byte_subseq(mrb, str, beg, end-beg));
-        mrb_gc_arena_restore(mrb, ai);
-        skip = TRUE;
-        beg = idx;
-        if (lim_p) ++i;
-      }
-      else {
-        end = idx;
-      }
-    }
-  }
-  else {                        /* split_type == string */
-    mrb_int str_len = RSTRING_LEN(str);
-    mrb_int pat_len = RSTRING_LEN(spat);
-    mrb_int idx = 0;
-    int ai = mrb_gc_arena_save(mrb);
-
-    while (idx < str_len) {
-      if (pat_len > 0) {
-        end = mrb_memsearch(RSTRING_PTR(spat), pat_len, RSTRING_PTR(str)+idx, str_len - idx);
-        if (end < 0) break;
-      }
-      else {
-        end = chars2bytes(str, idx, 1);
-      }
-      mrb_ary_push(mrb, result, mrb_str_byte_subseq(mrb, str, idx, end));
-      mrb_gc_arena_restore(mrb, ai);
-      idx += end + pat_len;
-      if (lim_p && lim <= ++i) break;
-    }
-    beg = idx;
-  }
-  if (RSTRING_LEN(str) > 0 && (lim_p || RSTRING_LEN(str) > beg || lim < 0)) {
-    if (RSTRING_LEN(str) == beg) {
-      tmp = mrb_str_new_empty(mrb, str);
-    }
-    else {
-      tmp = mrb_str_byte_subseq(mrb, str, beg, RSTRING_LEN(str)-beg);
-    }
-    mrb_ary_push(mrb, result, tmp);
-  }
-  if (!lim_p && lim == 0) {
-    mrb_int len;
-    while ((len = RARRAY_LEN(result)) > 0 &&
-           (tmp = RARRAY_PTR(result)[len-1], RSTRING_LEN(tmp) == 0))
-      mrb_ary_pop(mrb, result);
-  }
-
-  return result;
-}
-
 static mrb_value
 mrb_str_len_to_inum(mrb_state *mrb, const char *str, mrb_int len, mrb_int base, int badcheck)
 {
@@ -2958,6 +2808,30 @@ mrb_str_skip_newline(mrb_state *mrb, mrb_value str)
   return str_match_common(mrb, str, str_skip_newline);
 }
 
+static mrb_bool
+str_skip_whitespace(int ch)
+{
+  return (mrb_bool)(!ISSPACE(ch));
+}
+
+static mrb_value
+mrb_str_skip_whitespace(mrb_state *mrb, mrb_value str)
+{
+  return str_match_common(mrb, str, str_skip_whitespace);
+}
+
+static mrb_bool
+str_search_whitespace(int ch)
+{
+  return (mrb_bool)ISSPACE(ch);
+}
+
+static mrb_value
+mrb_str_search_whitespace(mrb_state *mrb, mrb_value str)
+{
+  return str_match_common(mrb, str, str_search_whitespace);
+}
+
 /* ---------------------------*/
 void
 mrb_init_string(mrb_state *mrb)
@@ -3002,7 +2876,6 @@ mrb_init_string(mrb_state *mrb)
   mrb_define_method(mrb, s, "rindex",          mrb_str_rindex,          MRB_ARGS_ANY());  /* 15.2.10.5.31 */
   mrb_define_method(mrb, s, "size",            mrb_str_size,            MRB_ARGS_NONE()); /* 15.2.10.5.33 */
   mrb_define_method(mrb, s, "slice",           mrb_str_aref_m,          MRB_ARGS_ANY());  /* 15.2.10.5.34 */
-  mrb_define_method(mrb, s, "split",           mrb_str_split_m,         MRB_ARGS_ANY());  /* 15.2.10.5.35 */
 
 #ifndef MRB_WITHOUT_FLOAT
   mrb_define_method(mrb, s, "to_f",            mrb_str_to_f,            MRB_ARGS_NONE()); /* 15.2.10.5.38 */
@@ -3022,6 +2895,8 @@ mrb_init_string(mrb_state *mrb)
 
   mrb_define_method(mrb, s, "__str_index_in",  mrb_str_index_in,        MRB_ARGS_ANY());
   mrb_define_method(mrb, s, "__skip_newline",  mrb_str_skip_newline,    MRB_ARGS_ANY());
+  mrb_define_method(mrb, s, "__skip_whitespace", mrb_str_skip_whitespace, MRB_ARGS_ANY());
+  mrb_define_method(mrb, s, "__search_whitespace", mrb_str_search_whitespace, MRB_ARGS_ANY());
 }
 
 #ifndef MRB_WITHOUT_FLOAT
