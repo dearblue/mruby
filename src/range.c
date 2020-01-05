@@ -417,6 +417,41 @@ mrb_range_beg_len(mrb_state *mrb, mrb_value range, mrb_int *begp, mrb_int *lenp,
   return MRB_RANGE_OK;
 }
 
+void mrb_str_range_to_bytes(mrb_value str, mrb_int *pos, mrb_int *len);
+mrb_int mrb_str_char_len(mrb_state *mrb, mrb_value str);
+
+/*
+ *  call-seq:
+ *    pattern.__str_index_in(str, off, register) -> register or nil
+ *
+ *  See <code>String#__str_index_in</code> method for more details.
+ *
+ *  Therefor, ignored +off+.
+ */
+static mrb_value
+range_str_index_in(mrb_state *mrb, mrb_value range)
+{
+  mrb_int len;
+  mrb_value str;
+  mrb_int off;
+  mrb_value regs;
+
+  mrb_get_args(mrb, "SiA", &str, &off, &regs);
+
+  len = mrb_str_char_len(mrb, str);
+  if (mrb_range_beg_len(mrb, range, &off, &len, len, TRUE) != MRB_RANGE_OK) {
+    return mrb_nil_value();
+  }
+  mrb_str_range_to_bytes(str, &off, &len);
+
+  mrb_ary_modify(mrb, mrb_ary_ptr(regs));
+  ARY_SET_LEN(mrb_ary_ptr(regs), 0);
+  mrb_ary_push(mrb, regs, mrb_fixnum_value(off));
+  mrb_ary_push(mrb, regs, mrb_fixnum_value(off + len));
+
+  return regs;
+}
+
 void
 mrb_init_range(mrb_state *mrb)
 {
@@ -440,4 +475,6 @@ mrb_init_range(mrb_state *mrb)
   mrb_define_method(mrb, r, "inspect",         range_inspect,         MRB_ARGS_NONE()); /* 15.2.14.4.13(x) */
   mrb_define_method(mrb, r, "eql?",            range_eql,             MRB_ARGS_REQ(1)); /* 15.2.14.4.14(x) */
   mrb_define_method(mrb, r, "initialize_copy", range_initialize_copy, MRB_ARGS_REQ(1)); /* 15.2.14.4.15(x) */
+
+  mrb_define_method(mrb, r, "__str_index_in",  range_str_index_in,    MRB_ARGS_ANY());
 }

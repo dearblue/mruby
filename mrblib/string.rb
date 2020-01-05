@@ -6,6 +6,111 @@ class String
   # ISO 15.2.10.3
   include Comparable
 
+  def __parse_aref(args)
+    off1 = args[0]
+    regs = []
+    case args.size
+    when 1
+      off1 = off1..off1 if off1.kind_of?(Numeric)
+      unless off1.respond_to?(:__str_index_in)
+        raise TypeError, "expect String, Regexp or Range"
+      end
+      regs = off1.__str_index_in(self, 0, regs)
+    when 2
+      len = args[1]
+      case off1
+      when Numeric
+        len = len.__to_int
+        return nil if len < 0
+        off1 = off1.to_i
+        if len > 0
+          off2 = off1 + len
+          if off2 == 0
+            off2 = off1 + len - 1
+            regs = (off1 .. off2).__str_index_in(self, 0, regs)
+          else
+            regs = (off1 ... off2).__str_index_in(self, 0, regs)
+          end
+        else
+          regs = (off1 .. off1).__str_index_in(self, 0, regs)
+          regs[1] = regs[0] if regs
+        end
+      else
+        unless off1.respond_to?(:__str_index_in) && !off1.kind_of?(String) && !off1.kind_of?(Range)
+          raise TypeError, "expect Integer or Regexp"
+        end
+        regs = off1.__str_index_in(self, len, regs)
+      end
+    else
+      raise ArgumentError, "wrong number of arguments"
+    end
+
+    regs
+  end
+
+  ##
+  # call-seq:
+  #   str[fixnum]                 => fixnum or nil
+  #   str[fixnum, fixnum]         => new_str or nil
+  #   str[range]                  => new_str or nil
+  #   str[other_str]              => new_str or nil
+  #   str.slice(fixnum)           => fixnum or nil
+  #   str.slice(fixnum, fixnum)   => new_str or nil
+  #   str.slice(range)            => new_str or nil
+  #   str.slice(other_str)        => new_str or nil
+  #
+  # Element Reference---If passed a single <code>Fixnum</code>, returns the code
+  # of the character at that position. If passed two <code>Fixnum</code>
+  # objects, returns a substring starting at the offset given by the first, and
+  # a length given by the second. If given a range, a substring containing
+  # characters at offsets given by the range is returned. In all three cases, if
+  # an offset is negative, it is counted from the end of +str+. Returns
+  # <code>nil</code> if the initial offset falls outside the string, the length
+  # is negative, or the beginning of the range is greater than the end.
+  #
+  # If a <code>String</code> is given, that string is returned if it occurs in
+  # +str+. In both cases, <code>nil</code> is returned if there is no
+  # match.
+  #
+  #   a = "hello there"
+  #   a[1]                   #=> 101(1.8.7) "e"(1.9.2)
+  #   a[1.1]                 #=>            "e"(1.9.2)
+  #   a[1,3]                 #=> "ell"
+  #   a[1..3]                #=> "ell"
+  #   a[-3,2]                #=> "er"
+  #   a[-4..-2]              #=> "her"
+  #   a[12..-1]              #=> nil
+  #   a[-2..-4]              #=> ""
+  #   a["lo"]                #=> "lo"
+  #   a["bye"]               #=> nil
+  #
+  # ISO 15.2.10.5.6
+  def [](*args)
+    (off1, off2) = __parse_aref(args)
+    return nil unless off1
+    byteslice(off1, off2 - off1)
+  end
+
+  # ISO 15.2.10.5.34
+  alias slice []
+
+  ##
+  # call-seq:
+  #   str[fixnum] = replace
+  #   str[fixnum, fixnum] = replace
+  #   str[range] = replace
+  #   str[other_str] = replace
+  #
+  # Modify <code>self</code> by replacing the content of <code>self</code>.
+  # The portion of the string affected is determined using the same criteria as <code>String#[]</code>.
+  def []=(*args, replace)
+    replace.__to_str
+    (off1, off2) = __parse_aref(args)
+    raise IndexError, "index #{args.size > 1 ? args.inspect : args[0]} out of string" unless off1
+    __bytereplace(off1, off2, replace)
+    self
+  end
+
   ##
   # Calls the given block for each line
   # and pass the respective line.

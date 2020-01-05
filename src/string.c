@@ -494,6 +494,13 @@ str_index_str_by_char(mrb_state *mrb, mrb_value str, mrb_value sub, mrb_int pos)
 #define str_index_str_by_char(mrb, str, sub, pos) str_index_str(mrb, str, sub, pos)
 #endif
 
+mrb_int
+mrb_str_char_len(mrb_state *mrb, mrb_value str)
+{
+  mrb_check_type(mrb, str, MRB_TT_STRING);
+  return RSTRING_CHAR_LEN(str);
+}
+
 static inline mrb_int
 mrb_memsearch_qs(const unsigned char *xs, mrb_int m, const unsigned char *ys, mrb_int n)
 {
@@ -611,8 +618,8 @@ mrb_str_byte_subseq(mrb_state *mrb, mrb_value str, mrb_int beg, mrb_int len)
   return mrb_obj_value(s);
 }
 
-static void
-str_range_to_bytes(mrb_value str, mrb_int *pos, mrb_int *len)
+void
+mrb_str_range_to_bytes(mrb_value str, mrb_int *pos, mrb_int *len)
 {
   *pos = chars2bytes(str, 0, *pos);
   *len = chars2bytes(str, *pos, *len);
@@ -621,7 +628,7 @@ str_range_to_bytes(mrb_value str, mrb_int *pos, mrb_int *len)
 static inline mrb_value
 str_subseq(mrb_state *mrb, mrb_value str, mrb_int beg, mrb_int len)
 {
-  str_range_to_bytes(str, &beg, &len);
+  mrb_str_range_to_bytes(str, &beg, &len);
   return mrb_str_byte_subseq(mrb, str, beg, len);
 }
 #else
@@ -1131,143 +1138,6 @@ mrb_str_dup(mrb_state *mrb, mrb_value str)
   return str_replace(mrb, dup, s);
 }
 
-enum str_convert_range {
-  /* `beg` and `len` are byte unit in `0 ... str.bytesize` */
-  STR_BYTE_RANGE_CORRECTED = 1,
-
-  /* `beg` and `len` are char unit in any range */
-  STR_CHAR_RANGE = 2,
-
-  /* `beg` and `len` are char unit in `0 ... str.size` */
-  STR_CHAR_RANGE_CORRECTED = 3,
-
-  /* `beg` is out of range */
-  STR_OUT_OF_RANGE = -1
-};
-
-static enum str_convert_range
-str_convert_range(mrb_state *mrb, mrb_value str, mrb_value indx, mrb_value alen, mrb_int *beg, mrb_int *len)
-{
-  if (!mrb_undef_p(alen)) {
-    *beg = mrb_int(mrb, indx);
-    *len = mrb_int(mrb, alen);
-    return STR_CHAR_RANGE;
-  }
-  else {
-    switch (mrb_type(indx)) {
-      case MRB_TT_FIXNUM:
-        *beg = mrb_fixnum(indx);
-        *len = 1;
-        return STR_CHAR_RANGE;
-
-      case MRB_TT_STRING:
-        *beg = str_index_str(mrb, str, indx, 0);
-        if (*beg < 0) { break; }
-        *len = RSTRING_LEN(indx);
-        return STR_BYTE_RANGE_CORRECTED;
-
-      case MRB_TT_RANGE:
-        goto range_arg;
-
-      default:
-        indx = mrb_to_int(mrb, indx);
-        if (mrb_fixnum_p(indx)) {
-          *beg = mrb_fixnum(indx);
-          *len = 1;
-          return STR_CHAR_RANGE;
-        }
-range_arg:
-        *len = RSTRING_CHAR_LEN(str);
-        switch (mrb_range_beg_len(mrb, indx, beg, len, *len, TRUE)) {
-          case MRB_RANGE_OK:
-            return STR_CHAR_RANGE_CORRECTED;
-          case MRB_RANGE_OUT:
-            return STR_OUT_OF_RANGE;
-          default:
-            break;
-        }
-
-        mrb_raise(mrb, E_TYPE_ERROR, "can't convert to Fixnum");
-    }
-  }
-  return STR_OUT_OF_RANGE;
-}
-
-static mrb_value
-mrb_str_aref(mrb_state *mrb, mrb_value str, mrb_value indx, mrb_value alen)
-{
-  mrb_int beg, len;
-
-  switch (str_convert_range(mrb, str, indx, alen, &beg, &len)) {
-    case STR_CHAR_RANGE_CORRECTED:
-      return str_subseq(mrb, str, beg, len);
-    case STR_CHAR_RANGE:
-      str = str_substr(mrb, str, beg, len);
-      if (mrb_undef_p(alen) && !mrb_nil_p(str) && RSTRING_LEN(str) == 0) return mrb_nil_value();
-      return str;
-    case STR_BYTE_RANGE_CORRECTED:
-      if (mrb_string_p(indx)) {
-        return mrb_str_dup(mrb, indx);
-      }
-      else {
-        return mrb_str_byte_subseq(mrb, str, beg, len);
-      }
-    case STR_OUT_OF_RANGE:
-    default:
-      return mrb_nil_value();
-  }
-}
-
-/* 15.2.10.5.6  */
-/* 15.2.10.5.34 */
-/*
- *  call-seq:
- *     str[fixnum]                 => fixnum or nil
- *     str[fixnum, fixnum]         => new_str or nil
- *     str[range]                  => new_str or nil
- *     str[other_str]              => new_str or nil
- *     str.slice(fixnum)           => fixnum or nil
- *     str.slice(fixnum, fixnum)   => new_str or nil
- *     str.slice(range)            => new_str or nil
- *     str.slice(other_str)        => new_str or nil
- *
- *  Element Reference---If passed a single <code>Fixnum</code>, returns the code
- *  of the character at that position. If passed two <code>Fixnum</code>
- *  objects, returns a substring starting at the offset given by the first, and
- *  a length given by the second. If given a range, a substring containing
- *  characters at offsets given by the range is returned. In all three cases, if
- *  an offset is negative, it is counted from the end of <i>str</i>. Returns
- *  <code>nil</code> if the initial offset falls outside the string, the length
- *  is negative, or the beginning of the range is greater than the end.
- *
- *  If a <code>String</code> is given, that string is returned if it occurs in
- *  <i>str</i>. In both cases, <code>nil</code> is returned if there is no
- *  match.
- *
- *     a = "hello there"
- *     a[1]                   #=> 101(1.8.7) "e"(1.9.2)
- *     a[1.1]                 #=>            "e"(1.9.2)
- *     a[1,3]                 #=> "ell"
- *     a[1..3]                #=> "ell"
- *     a[-3,2]                #=> "er"
- *     a[-4..-2]              #=> "her"
- *     a[12..-1]              #=> nil
- *     a[-2..-4]              #=> ""
- *     a["lo"]                #=> "lo"
- *     a["bye"]               #=> nil
- */
-static mrb_value
-mrb_str_aref_m(mrb_state *mrb, mrb_value str)
-{
-  mrb_value a1, a2;
-
-  if (mrb_get_args(mrb, "o|o", &a1, &a2) == 1) {
-    a2 = mrb_undef_value();
-  }
-
-  return mrb_str_aref(mrb, str, a1, a2);
-}
-
 static mrb_noreturn void
 str_out_of_index(mrb_state *mrb, mrb_value index)
 {
@@ -1398,60 +1268,6 @@ str_escape(mrb_state *mrb, mrb_value str, mrb_bool inspect)
 #endif
 
   return result;
-}
-
-static void
-mrb_str_aset(mrb_state *mrb, mrb_value str, mrb_value indx, mrb_value alen, mrb_value replace)
-{
-  mrb_int beg, len, charlen;
-
-  mrb_to_str(mrb, replace);
-
-  switch (str_convert_range(mrb, str, indx, alen, &beg, &len)) {
-    case STR_OUT_OF_RANGE:
-    default:
-      mrb_raise(mrb, E_INDEX_ERROR, "string not matched");
-    case STR_CHAR_RANGE:
-      if (len < 0) {
-        mrb_raisef(mrb, E_INDEX_ERROR, "negative length %v", alen);
-      }
-      charlen = RSTRING_CHAR_LEN(str);
-      if (beg < 0) { beg += charlen; }
-      if (beg < 0 || beg > charlen) { str_out_of_index(mrb, indx); }
-      /* fall through */
-    case STR_CHAR_RANGE_CORRECTED:
-      str_range_to_bytes(str, &beg, &len);
-      /* fall through */
-    case STR_BYTE_RANGE_CORRECTED:
-      str_replace_partial(mrb, str, beg, beg + len, replace);
-  }
-}
-
-/*
- * call-seq:
- *    str[fixnum] = replace
- *    str[fixnum, fixnum] = replace
- *    str[range] = replace
- *    str[other_str] = replace
- *
- * Modify +self+ by replacing the content of +self+.
- * The portion of the string affected is determined using the same criteria as +String#[]+.
- */
-static mrb_value
-mrb_str_aset_m(mrb_state *mrb, mrb_value str)
-{
-  mrb_value indx, alen, replace;
-
-  switch (mrb_get_args(mrb, "oo|S!", &indx, &alen, &replace)) {
-    case 2:
-      replace = alen;
-      alen = mrb_undef_value();
-      break;
-    case 3:
-      break;
-  }
-  mrb_str_aset(mrb, str, indx, alen, replace);
-  return str;
 }
 
 /* 15.2.10.5.8  */
@@ -2710,6 +2526,17 @@ mrb_str_byteslice(mrb_state *mrb, mrb_value str)
   }
 }
 
+static mrb_value
+mrb_str_bytereplace(mrb_state *mrb, mrb_value self)
+{
+  mrb_int off1, off2;
+  mrb_value sub;
+
+  mrb_get_args(mrb, "iiS", &off1, &off2, &sub);
+  str_replace_partial(mrb, self, off1, off2, sub);
+  return self;
+}
+
 /*
  *  call-seq:
  *    pattern.__str_index_in(str, off, register) -> register or nil
@@ -2850,8 +2677,6 @@ mrb_init_string(mrb_state *mrb)
   mrb_define_method(mrb, s, "==",              mrb_str_equal_m,         MRB_ARGS_REQ(1)); /* 15.2.10.5.2  */
   mrb_define_method(mrb, s, "+",               mrb_str_plus_m,          MRB_ARGS_REQ(1)); /* 15.2.10.5.4  */
   mrb_define_method(mrb, s, "*",               mrb_str_times,           MRB_ARGS_REQ(1)); /* 15.2.10.5.5  */
-  mrb_define_method(mrb, s, "[]",              mrb_str_aref_m,          MRB_ARGS_ANY());  /* 15.2.10.5.6  */
-  mrb_define_method(mrb, s, "[]=",             mrb_str_aset_m,          MRB_ARGS_ANY());
   mrb_define_method(mrb, s, "capitalize",      mrb_str_capitalize,      MRB_ARGS_NONE()); /* 15.2.10.5.7  */
   mrb_define_method(mrb, s, "capitalize!",     mrb_str_capitalize_bang, MRB_ARGS_NONE()); /* 15.2.10.5.8  */
   mrb_define_method(mrb, s, "chomp",           mrb_str_chomp,           MRB_ARGS_ANY());  /* 15.2.10.5.9  */
@@ -2875,7 +2700,6 @@ mrb_init_string(mrb_state *mrb)
   mrb_define_method(mrb, s, "reverse!",        mrb_str_reverse_bang,    MRB_ARGS_NONE()); /* 15.2.10.5.30 */
   mrb_define_method(mrb, s, "rindex",          mrb_str_rindex,          MRB_ARGS_ANY());  /* 15.2.10.5.31 */
   mrb_define_method(mrb, s, "size",            mrb_str_size,            MRB_ARGS_NONE()); /* 15.2.10.5.33 */
-  mrb_define_method(mrb, s, "slice",           mrb_str_aref_m,          MRB_ARGS_ANY());  /* 15.2.10.5.34 */
 
 #ifndef MRB_WITHOUT_FLOAT
   mrb_define_method(mrb, s, "to_f",            mrb_str_to_f,            MRB_ARGS_NONE()); /* 15.2.10.5.38 */
@@ -2893,6 +2717,7 @@ mrb_init_string(mrb_state *mrb)
   mrb_define_method(mrb, s, "setbyte",         mrb_str_setbyte,         MRB_ARGS_REQ(2));
   mrb_define_method(mrb, s, "byteslice",       mrb_str_byteslice,       MRB_ARGS_ARG(1,1));
 
+  mrb_define_method(mrb, s, "__bytereplace",   mrb_str_bytereplace,     MRB_ARGS_ANY());
   mrb_define_method(mrb, s, "__str_index_in",  mrb_str_index_in,        MRB_ARGS_ANY());
   mrb_define_method(mrb, s, "__skip_newline",  mrb_str_skip_newline,    MRB_ARGS_ANY());
   mrb_define_method(mrb, s, "__skip_whitespace", mrb_str_skip_whitespace, MRB_ARGS_ANY());
