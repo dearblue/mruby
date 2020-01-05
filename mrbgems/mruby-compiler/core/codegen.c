@@ -1218,7 +1218,7 @@ search_upvar(codegen_scope *s, mrb_sym id, int *idx)
   if (lv < 1) lv = 1;
   u = s->parser->upper;
   while (u && !MRB_PROC_CFUNC_P(u)) {
-    const struct mrb_irep *ir = u->body.irep;
+    const struct mrb_irep *ir = MRB_PROC_IREP(u);
     uint_fast16_t n = ir->nlocals;
     int i;
 
@@ -3869,7 +3869,7 @@ generate_code(mrb_state *mrb, parser_state *p, int val)
   MRB_TRY(mrb->jmp) {
     /* prepare irep */
     codegen(scope, p->tree, val);
-    proc = mrb_proc_new(mrb, scope->irep);
+    proc = mrb_proc_new(mrb, scope->irep, NULL);
     mrb_irep_decref(mrb, scope->irep);
     mrb_pool_close(scope->mpool);
     proc->c = NULL;

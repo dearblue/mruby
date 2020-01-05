@@ -216,7 +216,7 @@ method_eql(mrb_state *mrb, mrb_value self)
   else {
     if (MRB_PROC_CFUNC_P(other_rproc))
       return mrb_false_value();
-    if (orig_rproc->body.irep != other_rproc->body.irep)
+    if (MRB_PROC_IREP(orig_rproc) != MRB_PROC_IREP(other_rproc))
       return mrb_false_value();
   }
 
