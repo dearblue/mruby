@@ -30,8 +30,8 @@
   { \
     int ai = mrb_gc_arena_save(mrb); \
     struct RProc *proc = basecall; \
-    struct mrb_irep *irep = (mrb_irep*)(proc ? proc->body.irep : NULL); \
-    if (irep) proc->body.irep = NULL; \
+    struct mrb_irep *irep = (mrb_irep*)(proc ? proc->body.irep_direct : NULL); \
+    if (irep) proc->body.irep_direct = NULL; \
     mrb_gc_arena_restore(mrb, ai); \
     return irep; \
   }
@@ -290,9 +290,9 @@ read_section_irep(mrb_state *mrb, const uint8_t *bin, size_t size, uint8_t flags
    * This proc object keeps all the data in progress to avoid memory leaks
    * if something goes wrong while reading irep.
    */
-  *proc = mrb_proc_new(mrb, NULL);
+  *proc = mrb_proc_new(mrb, NULL, NULL);
 
-  mrb_irep **irepp = (mrb_irep**)&(*proc)->body.irep;
+  mrb_irep **irepp = (mrb_irep**)&(*proc)->body.irep_direct;
   size_t len;
   bin += sizeof(struct rite_section_irep_header);
   if (read_irep_record(mrb, bin, bin+size, &len, flags, irepp)) {
@@ -674,7 +674,7 @@ void mrb_codedump_all(mrb_state*, struct RProc*);
 static mrb_value
 load_irep(mrb_state *mrb, struct RProc *proc, mrbc_context *c)
 {
-  if (!proc || !proc->body.irep) {
+  if (!proc || !proc->body.irep_direct) {
     irep_error(mrb);
     return mrb_nil_value();
   }

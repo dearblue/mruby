@@ -629,6 +629,6 @@ void
 mrb_codedump_all(mrb_state *mrb, struct RProc *proc)
 {
 #ifndef MRB_NO_STDIO
-  codedump_recur(mrb, proc->body.irep);
+  codedump_recur(mrb, MRB_PROC_IREP(proc));
 #endif
 }

@@ -262,7 +262,7 @@ static int
 dump_file(mrb_state *mrb, FILE *wfp, const char *outfile, struct RProc *proc, struct mrbc_args *args)
 {
   int n = MRB_DUMP_OK;
-  const mrb_irep *irep = proc->body.irep;
+  const mrb_irep *irep = MRB_PROC_IREP(proc);
 
   if (args->remove_lv) {
     mrb_irep_remove_lv(mrb, (mrb_irep*)irep);

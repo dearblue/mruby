@@ -94,7 +94,7 @@ binding_eval_prepare_body(mrb_state *mrb, void *opaque)
   binding_eval_error_check(mrb, p->pstate, p->file);
 
   struct expand_lvspace args = {
-    (mrb_irep*)proc->body.irep,
+    (mrb_irep*)MRB_PROC_IREP(proc),
     mrb_binding_extract_env(mrb, p->binding),
     0,
     { 0 }

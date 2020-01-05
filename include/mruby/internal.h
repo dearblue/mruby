@@ -102,8 +102,8 @@ mrb_value mrb_rational_div(mrb_state *mrb, mrb_value x, mrb_value y);
 #endif
 
 #ifdef MRUBY_PROC_H
-struct RProc *mrb_proc_new(mrb_state*, const mrb_irep*);
-struct RProc *mrb_closure_new(mrb_state*, const mrb_irep*);
+struct RProc *mrb_proc_new(mrb_state*, const mrb_irep*, struct RArray*);
+struct RProc *mrb_closure_new(mrb_state*, const mrb_irep*, struct RArray*);
 void mrb_proc_copy(mrb_state *mrb, struct RProc *a, struct RProc *b);
 mrb_int mrb_proc_arity(const struct RProc *p);
 #endif

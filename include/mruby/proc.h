@@ -10,6 +10,8 @@
 #include "common.h"
 #include <mruby/irep.h>
 
+struct RArray;
+
 /**
  * Proc class
  */
@@ -38,11 +40,21 @@ struct REnv {
 
 void mrb_env_unshare(mrb_state*, struct REnv*);
 
+#ifdef MRB_USE_REFINEMENT
+struct mrb_proc_extra {
+  const mrb_irep *irep;
+  struct RArray *attached_refinements;
+};
+#endif
+
 struct RProc {
   MRB_OBJECT_HEADER;
   union {
-    const mrb_irep *irep;
+    const mrb_irep *irep_direct;
     mrb_func_t func;
+#ifdef MRB_USE_REFINEMENT
+    struct mrb_proc_extra *extra;
+#endif
   } body;
   const struct RProc *upper;
   union {
@@ -85,6 +97,24 @@ struct RProc {
 #define MRB_PROC_SCOPE_P(p) (((p)->flags & MRB_PROC_SCOPE) != 0)
 #define MRB_PROC_NOARG 4096 /* for MRB_PROC_CFUNC_FL, it would be something like MRB_ARGS_NONE() or MRB_METHOD_NOARG_FL */
 #define MRB_PROC_NOARG_P(p) (((p)->flags & MRB_PROC_NOARG) != 0)
+
+#ifdef MRB_USE_REFINEMENT
+# define MRB_PROC_SEPARATE_REFINEMENTS_FL (1UL<<13)
+# define MRB_PROC_SEPARATE_REFINEMENTS_P(p) (((p)->flags & (MRB_PROC_SCOPE | MRB_PROC_SEPARATE_REFINEMENTS_FL)) != 0 ? TRUE : FALSE)
+# define MRB_PROC_SET_SEPARATE_REFINEMENTS(p) do { (p)->flags |= MRB_PROC_SEPARATE_REFINEMENTS_FL; } while (0)
+
+/* Use field `struct RProc::body.extra` with `struct mrb_proc_extra` */
+# define MRB_PROC_EXTRA_FL (1UL<<14)
+# define MRB_PROC_EXTRA_P(p) (((p)->flags & MRB_PROC_EXTRA_FL) != 0 ? TRUE : FALSE)
+# define MRB_PROC_SET_EXTRA(p, ex) do { (p)->flags |= MRB_PROC_EXTRA_FL; (p)->body.extra = (ex); } while (0)
+# define MRB_PROC_IREP(p) (MRB_PROC_EXTRA_P(p) ? (p)->body.extra->irep : (p)->body.irep_direct)
+# define MRB_PROC_ATTACHED_REFINEMENTS(p) (MRB_PROC_EXTRA_P(p) ? (p)->body.extra->attached_refinements : (struct RArray*)NULL)
+#else
+# define MRB_PROC_SEPARATE_REFINEMENTS_P(p) ((void)(p), FALSE)
+# define MRB_PROC_SET_SEPARATE_REFINEMENTS(p) ((void)(p))
+# define MRB_PROC_IREP(p) ((p)->body.irep_direct)
+# define MRB_PROC_ATTACHED_REFINEMENTS(p) ((void)(p), (struct RArray*)NULL)
+#endif /* MRB_USE_REFINEMENT */
 
 #define mrb_proc_ptr(v)    ((struct RProc*)(mrb_ptr(v)))
 
@@ -129,6 +159,18 @@ MRB_API mrb_value mrb_proc_cfunc_env_get(mrb_state *mrb, mrb_int idx);
 #define MRB_METHOD_CFUNC_P(m) (MRB_METHOD_FUNC_P(m)?TRUE:(MRB_METHOD_PROC(m)?(MRB_PROC_CFUNC_P(MRB_METHOD_PROC(m))):FALSE))
 #define MRB_METHOD_CFUNC(m) (MRB_METHOD_FUNC_P(m)?MRB_METHOD_FUNC(m):((MRB_METHOD_PROC(m)&&MRB_PROC_CFUNC_P(MRB_METHOD_PROC(m)))?MRB_PROC_CFUNC(MRB_METHOD_PROC(m)):NULL))
 
+static inline struct RArray *
+mrb_method_attached_refinements(mrb_method_t m)
+{
+#ifdef MRB_USE_REFINEMENT
+  if (MRB_METHOD_PROC_P(m)) {
+    struct RProc *p = MRB_METHOD_PROC(m);
+
+    return MRB_PROC_ATTACHED_REFINEMENTS(p);
+  }
+#endif
+  return NULL;
+}
 
 #include <mruby/khash.h>
 
@@ -138,7 +180,7 @@ static inline void
 mrb_vm_ci_proc_set(mrb_callinfo *ci, const struct RProc *p)
 {
   ci->proc = p;
-  ci->pc = (p && !MRB_PROC_CFUNC_P(p)) ? p->body.irep->iseq : NULL;
+  ci->pc = (p && !MRB_PROC_CFUNC_P(p)) ? MRB_PROC_IREP(p)->iseq : NULL;
 }
 
 static inline struct RClass *
@@ -200,6 +242,26 @@ mrb_vm_ci_env_set(mrb_callinfo *ci, struct REnv *e)
   else {
     ci->u.env = e;
   }
+}
+
+static inline struct RArray *
+mrb_vm_ci_activated_refinements(const mrb_callinfo *ci)
+{
+#ifdef MRB_USE_REFINEMENT
+  return ci->activated_refinements;
+#else
+  return NULL;
+#endif
+}
+
+static inline void
+mrb_vm_ci_activated_refinements_set(mrb_callinfo *ci, struct RArray *actrefs)
+{
+#ifdef MRB_USE_REFINEMENT
+  ci->activated_refinements = actrefs;
+#else
+  (void)actrefs;
+#endif
 }
 
 MRB_END_DECL

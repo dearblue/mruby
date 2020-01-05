@@ -269,6 +269,7 @@ cipush(mrb_state *mrb, mrb_int push_stacks, uint8_t cci,
   ci->nk = (argc>>4) & 0xf;
   ci->cci = cci;
   ci->u.target_class = target_class;
+  mrb_vm_ci_activated_refinements_set(ci, (proc ? MRB_PROC_ATTACHED_REFINEMENTS(proc) : NULL));
 
   return ci;
 }
@@ -425,16 +426,18 @@ mrb_ci_nregs(mrb_callinfo *ci)
   if (!ci) return 4;
   mrb_int nregs = mrb_ci_bidx(ci) + 1; /* self + args + kargs + blk */
   p = ci->proc;
-  if (p && !MRB_PROC_CFUNC_P(p) && p->body.irep && p->body.irep->nregs > nregs) {
-    return p->body.irep->nregs;
+  if (p && !MRB_PROC_CFUNC_P(p) && MRB_PROC_IREP(p) && MRB_PROC_IREP(p)->nregs > nregs) {
+    return MRB_PROC_IREP(p)->nregs;
   }
   return nregs;
 }
 
 mrb_value mrb_obj_missing(mrb_state *mrb, mrb_value mod);
+mrb_method_t mrb_refinement_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine);
+mrb_method_t mrb_refinement_method_search_vm_super(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine, mrb_value recv);
 
 static mrb_method_t
-prepare_missing(mrb_state *mrb, mrb_value recv, mrb_sym mid, struct RClass **clsp, uint32_t a, uint16_t *c, mrb_value blk, int super)
+prepare_missing(mrb_state *mrb, mrb_value recv, mrb_sym mid, struct RClass **clsp, uint32_t a, uint16_t *c, mrb_value blk, int super, struct RArray *refine)
 {
   mrb_sym missing = MRB_SYM(method_missing);
   mrb_callinfo *ci = mrb->c->ci;
@@ -458,7 +461,7 @@ prepare_missing(mrb_state *mrb, mrb_value recv, mrb_sym mid, struct RClass **cls
   if (mid != missing) {
     *clsp = mrb_class(mrb, recv);
   }
-  m = mrb_method_search_vm(mrb, clsp, missing);
+  m = mrb_refinement_method_search_vm(mrb, clsp, missing, refine);
   if (MRB_METHOD_UNDEF_P(m)) goto method_missing; /* just in case */
   mrb_stack_extend(mrb, a+4);
 
@@ -477,8 +480,8 @@ prepare_missing(mrb_state *mrb, mrb_value recv, mrb_sym mid, struct RClass **cls
   return m;
 }
 
-MRB_API mrb_value
-mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk)
+mrb_value
+mrb_refinement_funcall(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk, struct RArray *refine)
 {
   mrb_value val;
   int ai = mrb_gc_arena_save(mrb);
@@ -490,7 +493,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
     MRB_TRY(&c_jmp) {
       mrb->jmp = &c_jmp;
       /* recursive call */
-      val = mrb_funcall_with_block(mrb, self, mid, argc, argv, blk);
+      val = mrb_refinement_funcall(mrb, self, mid, argc, argv, blk, refine);
       mrb->jmp = 0;
     }
     MRB_CATCH(&c_jmp) { /* error */
@@ -523,7 +526,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
       mrb_raisef(mrb, E_ARGUMENT_ERROR, "negative argc for funcall (%i)", argc);
     }
     c = mrb_class(mrb, self);
-    m = mrb_method_search_vm(mrb, &c, mid);
+    m = mrb_refinement_method_search_vm(mrb, &c, mid, refine);
     mrb_stack_extend(mrb, n + argc + 3);
     if (argc >= 15) {
       ci->stack[n+1] = mrb_ary_new_from_values(mrb, argc, argv);
@@ -531,7 +534,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
     }
     if (MRB_METHOD_UNDEF_P(m)) {
       uint16_t ac = (uint16_t)argc;
-      m = prepare_missing(mrb, self, mid, &c, (uint32_t)n, &ac, mrb_nil_value(), 0);
+      m = prepare_missing(mrb, self, mid, &c, (uint32_t)n, &ac, mrb_nil_value(), 0, refine);
       argc = (mrb_int)ac;
       mid = MRB_SYM(method_missing);
     }
@@ -541,7 +544,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
 
       mrb_vm_ci_proc_set(ci, p);
       if (!MRB_PROC_CFUNC_P(p)) {
-        mrb_stack_extend(mrb, p->body.irep->nregs + argc);
+        mrb_stack_extend(mrb, MRB_PROC_IREP(p)->nregs + argc);
       }
     }
     if (voff >= 0) {
@@ -556,6 +559,7 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
     else {
       ci->stack[2] = blk;
     }
+    mrb_vm_ci_activated_refinements_set(ci, mrb_method_attached_refinements(m));
 
     if (MRB_METHOD_CFUNC_P(m)) {
       ci->cci = CINFO_DIRECT;
@@ -570,6 +574,12 @@ mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc
   mrb_gc_arena_restore(mrb, ai);
   mrb_gc_protect(mrb, val);
   return val;
+}
+
+MRB_API mrb_value
+mrb_funcall_with_block(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk)
+{
+  return mrb_refinement_funcall(mrb, self, mid, argc, argv, blk, NULL);
 }
 
 MRB_API mrb_value
@@ -607,7 +617,7 @@ exec_irep(mrb_state *mrb, mrb_value self, struct RProc *p)
     }
     return MRB_PROC_CFUNC(p)(mrb, self);
   }
-  nregs = p->body.irep->nregs;
+  nregs = MRB_PROC_IREP(p)->nregs;
   keep = mrb_ci_bidx(ci)+1;
   if (nregs < keep) {
     mrb_stack_extend(mrb, keep);
@@ -684,7 +694,7 @@ mrb_f_send(mrb_state *mrb, mrb_value self)
     const mrb_value *argv;
     mrb_int argc;
     mrb_get_args(mrb, "n*&", &name, &argv, &argc, &block);
-    return mrb_funcall_with_block(mrb, self, name, argc, argv, block);
+    return mrb_refinement_funcall(mrb, self, name, argc, argv, block, mrb_vm_ci_activated_refinements(&ci[-1]));
   }
 
   regs = mrb->c->ci->stack+1;
@@ -702,7 +712,7 @@ mrb_f_send(mrb_state *mrb, mrb_value self)
   }
 
   c = mrb_class(mrb, self);
-  m = mrb_method_search_vm(mrb, &c, name);
+  m = mrb_refinement_method_search_vm(mrb, &c, name, mrb_vm_ci_activated_refinements(&ci[-1]));
   if (MRB_METHOD_UNDEF_P(m)) {            /* call method_mising */
     goto funcall;
   }
@@ -773,7 +783,7 @@ eval_under(mrb_state *mrb, mrb_value self, mrb_value blk, struct RClass *c)
     mrb->c->ci->stack[2] = mrb_nil_value();
     return MRB_PROC_CFUNC(p)(mrb, self);
   }
-  nregs = p->body.irep->nregs;
+  nregs = MRB_PROC_IREP(p)->nregs;
   if (nregs < 4) nregs = 4;
   mrb_stack_extend(mrb, nregs);
   mrb->c->ci->stack[0] = self;
@@ -837,8 +847,8 @@ mrb_obj_instance_eval(mrb_state *mrb, mrb_value self)
   return eval_under(mrb, self, b, mrb_singleton_class_ptr(mrb, self));
 }
 
-MRB_API mrb_value
-mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value *argv, mrb_value self, struct RClass *c)
+mrb_value
+mrb_refinement_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value *argv, mrb_value self, struct RClass *c, struct RArray *actrefs)
 {
   struct RProc *p;
   mrb_sym mid = mrb->c->ci->mid;
@@ -877,9 +887,16 @@ mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value 
     cipop(mrb);
   }
   else {
+    mrb_vm_ci_activated_refinements_set(ci, actrefs);
     val = mrb_run(mrb, p, self);
   }
   return val;
+}
+
+MRB_API mrb_value
+mrb_yield_with_class(mrb_state *mrb, mrb_value b, mrb_int argc, const mrb_value *argv, mrb_value self, struct RClass *c)
+{
+  return mrb_refinement_yield_with_class(mrb, b, argc, argv, self, c, NULL);
 }
 
 MRB_API mrb_value
@@ -946,7 +963,7 @@ catch_handler_find(mrb_state *mrb, mrb_callinfo *ci, const mrb_code *pc, uint32_
 #define catch_cover_p(pc, beg, end) ((pc) > (ptrdiff_t)(beg) && (pc) <= (ptrdiff_t)(end))
 
   if (ci->proc == NULL || MRB_PROC_CFUNC_P(ci->proc)) return NULL;
-  irep = ci->proc->body.irep;
+  irep = MRB_PROC_IREP(ci->proc);
   if (irep->clen < 1) return NULL;
   xpc = pc - irep->iseq;
   /* If it retry at the top level, pc will be 0, so check with -1 as the start position */
@@ -1115,7 +1132,7 @@ prepare_tagged_break(mrb_state *mrb, uint32_t tag, const struct RProc *proc, mrb
 MRB_API mrb_value
 mrb_vm_run(mrb_state *mrb, const struct RProc *proc, mrb_value self, mrb_int stack_keep)
 {
-  const mrb_irep *irep = proc->body.irep;
+  const mrb_irep *irep = MRB_PROC_IREP(proc);
   mrb_value result;
   struct mrb_context *c = mrb->c;
   ptrdiff_t cioff = c->ci - c->cibase;
@@ -1200,7 +1217,7 @@ MRB_API mrb_value
 mrb_vm_exec(mrb_state *mrb, const struct RProc *proc, const mrb_code *pc)
 {
   /* mrb_assert(MRB_PROC_CFUNC_P(proc)) */
-  const mrb_irep *irep = proc->body.irep;
+  const mrb_irep *irep = MRB_PROC_IREP(proc);
   const mrb_pool_value *pool = irep->pool;
   const mrb_sym *syms = irep->syms;
   mrb_code insn;
@@ -1623,9 +1640,9 @@ RETRY_TRY_BLOCK:
 
       recv = regs[a];
       cls = mrb_class(mrb, recv);
-      m = mrb_method_search_vm(mrb, &cls, mid);
+      m = mrb_refinement_method_search_vm(mrb, &cls, mid, mrb_vm_ci_activated_refinements(ci));
       if (MRB_METHOD_UNDEF_P(m)) {
-        m = prepare_missing(mrb, recv, mid, &cls, a, &c, blk, 0);
+        m = prepare_missing(mrb, recv, mid, &cls, a, &c, blk, 0, mrb_vm_ci_activated_refinements(ci));
         mid = MRB_SYM(method_missing);
       }
 
@@ -1662,7 +1679,7 @@ RETRY_TRY_BLOCK:
           else {
             mrb_assert(!MRB_PROC_CFUNC_P(ci[-1].proc));
             proc = ci[-1].proc;
-            irep = proc->body.irep;
+            irep = MRB_PROC_IREP(proc);
             pool = irep->pool;
             syms = irep->syms;
           }
@@ -1675,7 +1692,8 @@ RETRY_TRY_BLOCK:
       else {
         /* setup environment for calling method */
         mrb_vm_ci_proc_set(ci, (proc = MRB_METHOD_PROC(m)));
-        irep = proc->body.irep;
+        irep = MRB_PROC_IREP(proc);
+        mrb_vm_ci_activated_refinements_set(ci, MRB_PROC_ATTACHED_REFINEMENTS(proc));
         pool = irep->pool;
         syms = irep->syms;
         mrb_stack_extend(mrb, (irep->nregs < 4) ? 4 : irep->nregs);
@@ -1705,12 +1723,13 @@ RETRY_TRY_BLOCK:
         ci = cipop(mrb);
         pc = ci->pc;
         ci[1].stack[0] = recv;
-        irep = mrb->c->ci->proc->body.irep;
+        irep = MRB_PROC_IREP(mrb->c->ci->proc);
       }
       else {
         /* setup environment for calling method */
         proc = m;
-        irep = m->body.irep;
+        irep = MRB_PROC_IREP(m);
+        mrb_vm_ci_activated_refinements_set(ci, MRB_PROC_ATTACHED_REFINEMENTS(m));
         if (!irep) {
           mrb->c->ci->stack[0] = mrb_nil_value();
           a = 0;
@@ -1752,12 +1771,12 @@ RETRY_TRY_BLOCK:
       }
       if ((target_class->flags & MRB_FL_CLASS_IS_PREPENDED) || target_class->tt == MRB_TT_MODULE) {
         target_class = mrb_vm_ci_target_class(ci);
-        if (!target_class || target_class->tt != MRB_TT_ICLASS) {
+        if (!target_class || target_class->tt != MRB_TT_ICLASS && target_class->tt != MRB_TT_REFINEMENT) {
           goto super_typeerror;
         }
       }
       recv = regs[0];
-      if (!mrb_obj_is_kind_of(mrb, recv, target_class)) {
+      if (target_class->tt != MRB_TT_REFINEMENT && !mrb_obj_is_kind_of(mrb, recv, target_class)) {
       super_typeerror: ;
         mrb_value exc = mrb_exc_new_lit(mrb, E_TYPE_ERROR,
                                             "self has wrong type to call super in this context");
@@ -1767,10 +1786,10 @@ RETRY_TRY_BLOCK:
 
       ARGUMENT_NORMALIZE(a, &b, OP_SUPER);
 
-      cls = target_class->super;
-      m = mrb_method_search_vm(mrb, &cls, mid);
+      cls = target_class;
+      m = mrb_refinement_method_search_vm_super(mrb, &cls, mid, mrb_vm_ci_activated_refinements(ci), recv);
       if (MRB_METHOD_UNDEF_P(m)) {
-        m = prepare_missing(mrb, recv, mid, &cls, a, &b, blk, 1);
+        m = prepare_missing(mrb, recv, mid, &cls, a, &b, blk, 1, mrb_vm_ci_activated_refinements(ci));
         mid = MRB_SYM(method_missing);
       }
 
@@ -1799,7 +1818,7 @@ RETRY_TRY_BLOCK:
           else {
             mrb_assert(!MRB_PROC_CFUNC_P(ci[-1].proc));
             proc = ci[-1].proc;
-            irep = proc->body.irep;
+            irep = MRB_PROC_IREP(proc);
             pool = irep->pool;
             syms = irep->syms;
           }
@@ -1811,7 +1830,8 @@ RETRY_TRY_BLOCK:
       else {
         /* setup environment for calling method */
         mrb_vm_ci_proc_set(ci, (proc = MRB_METHOD_PROC(m)));
-        irep = proc->body.irep;
+        mrb_vm_ci_activated_refinements_set(ci, MRB_PROC_ATTACHED_REFINEMENTS(proc));
+        irep = MRB_PROC_IREP(proc);
         pool = irep->pool;
         syms = irep->syms;
         mrb_stack_extend(mrb, (irep->nregs < 4) ? 4 : irep->nregs);
@@ -2131,7 +2151,7 @@ RETRY_TRY_BLOCK:
           ci = mrb->c->ci;
         }
         proc = ci->proc;
-        irep = proc->body.irep;
+        irep = MRB_PROC_IREP(proc);
         pool = irep->pool;
         syms = irep->syms;
         mrb_stack_extend(mrb, irep->nregs);
@@ -2345,7 +2365,7 @@ RETRY_TRY_BLOCK:
         pc = ci->pc;
         DEBUG(fprintf(stderr, "from :%s\n", mrb_sym_name(mrb, ci->mid)));
         proc = ci->proc;
-        irep = proc->body.irep;
+        irep = MRB_PROC_IREP(proc);
         pool = irep->pool;
         syms = irep->syms;
 
@@ -2809,10 +2829,10 @@ RETRY_TRY_BLOCK:
       const mrb_irep *nirep = irep->reps[b];
 
       if (c & OP_L_CAPTURE) {
-        p = mrb_closure_new(mrb, nirep);
+        p = mrb_closure_new(mrb, nirep, mrb_vm_ci_activated_refinements(mrb->c->ci));
       }
       else {
-        p = mrb_proc_new(mrb, nirep);
+        p = mrb_proc_new(mrb, nirep, mrb_vm_ci_activated_refinements(mrb->c->ci));
         p->flags |= MRB_PROC_SCOPE;
       }
       if (c & OP_L_STRICT) p->flags |= MRB_PROC_STRICT;
@@ -2888,9 +2908,10 @@ RETRY_TRY_BLOCK:
       mrb_value recv = regs[a];
       struct RProc *p;
       const mrb_irep *nirep = irep->reps[b];
+      struct RArray *actrefs = mrb_vm_ci_activated_refinements(mrb->c->ci);
 
       /* prepare closure */
-      p = mrb_proc_new(mrb, nirep);
+      p = mrb_proc_new(mrb, nirep, actrefs);
       p->c = NULL;
       mrb_field_write_barrier(mrb, (struct RBasic*)p, (struct RBasic*)proc);
       MRB_PROC_SET_TARGET_CLASS(p, mrb_class_ptr(recv));
@@ -2899,7 +2920,7 @@ RETRY_TRY_BLOCK:
       /* prepare call stack */
       cipush(mrb, a, 0, mrb_class_ptr(recv), p, 0, 0);
 
-      irep = p->body.irep;
+      irep = MRB_PROC_IREP(p);
       pool = irep->pool;
       syms = irep->syms;
       mrb_stack_extend(mrb, irep->nregs);

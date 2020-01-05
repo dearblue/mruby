@@ -281,7 +281,7 @@ local_var_p(parser_state *p, mrb_sym sym)
 
   u = p->upper;
   while (u && !MRB_PROC_CFUNC_P(u)) {
-    const struct mrb_irep *ir = u->body.irep;
+    const struct mrb_irep *ir = MRB_PROC_IREP(u);
     const mrb_sym *v = ir->lv;
     int i;
 

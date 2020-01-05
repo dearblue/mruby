@@ -141,6 +141,7 @@ static const unsigned int IEEE754_INFINITY_BITS_SINGLE = 0x7F800000;
   f(MRB_TT_MODULE,      struct RClass,      "Module") \
   f(MRB_TT_ICLASS,      struct RClass,      "iClass") \
   f(MRB_TT_SCLASS,      struct RClass,      "SClass") \
+  f(MRB_TT_REFINEMENT,  struct RClass,      "refinement") \
   f(MRB_TT_PROC,        struct RProc,       "Proc") \
   f(MRB_TT_ARRAY,       struct RArray,      "Array") \
   f(MRB_TT_HASH,        struct RHash,       "Hash") \

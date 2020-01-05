@@ -398,9 +398,25 @@ class_name_str(mrb_state *mrb, struct RClass* c)
 {
   mrb_value path = mrb_class_path(mrb, c);
   if (mrb_nil_p(path)) {
-    path = c->tt == MRB_TT_MODULE ? mrb_str_new_lit(mrb, "#<Module:") :
-                                    mrb_str_new_lit(mrb, "#<Class:");
-    mrb_str_cat_str(mrb, path, mrb_ptr_to_str(mrb, c));
+#ifdef MRB_USE_REFINEMENT
+    if (c->tt == MRB_TT_REFINEMENT) {
+      path = mrb_str_new_lit(mrb, "#<refinement:");
+      mrb_str_cat_str(mrb, path, mrb_mod_to_s(mrb, mrb_obj_value(c->super)));
+      {
+        mrb_value outer = mrb_obj_iv_get(mrb, (struct RObject*)c, MRB_SYM(__outer__));
+        if (!mrb_nil_p(outer)) {
+          mrb_str_cat_lit(mrb, path, "@");
+          mrb_str_cat_str(mrb, path, mrb_mod_to_s(mrb, outer));
+        }
+      }
+    }
+    else
+#endif /* MRB_USE_REFINEMENT */
+    {
+      path = c->tt == MRB_TT_MODULE ? mrb_str_new_lit(mrb, "#<Module:") :
+                                      mrb_str_new_lit(mrb, "#<Class:");
+      mrb_str_cat_str(mrb, path, mrb_ptr_to_str(mrb, c));
+    }
     mrb_str_cat_lit(mrb, path, ">");
   }
   return path;
@@ -1829,6 +1845,119 @@ mrb_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid)
   }
   MRB_METHOD_FROM_PROC(m, NULL);
   return m;                  /* no method */
+}
+
+#ifdef MRB_USE_REFINEMENT
+static struct RClass *
+refinement_search(mrb_state *mrb, mrb_value refhash, struct RClass *c)
+{
+  mrb_value o = mrb_hash_fetch(mrb, refhash, mrb_obj_value(c), mrb_nil_value());
+  if (mrb_nil_p(o)) return NULL;
+  mrb_check_type(mrb, o, MRB_TT_REFINEMENT);
+  return mrb_class_ptr(o);
+}
+
+static struct RClass *
+class_distil(struct RClass *c)
+{
+  while (c && c->tt == MRB_TT_ICLASS) {
+    c = c->c;
+  }
+  return c;
+}
+
+static void
+refinement_adjust_super_class(struct RClass **cp, struct RClass **scp)
+{
+  struct RClass *c0 = *cp;
+  *cp = c0->super;
+  if (c0->tt == MRB_TT_REFINEMENT) {
+    if (*cp && !((*cp)->flags & MRB_FL_CLASS_IS_PREPENDED)) {
+      struct RClass *x = *scp;
+      for (; x; x = x->super) {
+        if (x->tt == MRB_TT_ICLASS && x->c == *cp) {
+          *cp = x;
+          break;
+        }
+      }
+    }
+    *scp = c0;
+  }
+  else {
+    *scp = NULL;
+  }
+}
+
+static mrb_method_t
+refinement_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine, struct RClass *supercaller)
+{
+  struct RClass *c = *cp;
+  if (c && supercaller) {
+    refinement_adjust_super_class(&c, &supercaller);
+  }
+
+  mrb_ssize reflen = ARY_LEN(refine);
+  const mrb_value *refp = ARY_PTR(refine);
+  mrb_method_t m;
+  for (; c; c = c->super) {
+    if (c->tt != MRB_TT_ICLASS || !(c->flags & MRB_FL_CLASS_IS_ORIGIN)) {
+      struct RClass *cc = class_distil(c);
+      const mrb_value *rp = refp;
+      for (mrb_ssize i = reflen; i > 0; i--, rp++) {
+        if (!mrb_hash_p(*rp)) continue;
+
+        struct RClass *cx = refinement_search(mrb, *rp, cc);
+        if (cx) {
+          if (supercaller) {
+            if (supercaller == cx) {
+              supercaller = NULL;
+            }
+          }
+          else if (method_search(mrb, cx, mid, &m)) {
+            c = cx;
+            goto found_method;
+          }
+        }
+      }
+    }
+    supercaller = NULL;
+
+    if (method_search(mrb, c, mid, &m)) {
+    found_method:
+      if (MRB_METHOD_UNDEF_P(m)) break;
+      *cp = c;
+      return m;
+    }
+  }
+  MRB_METHOD_FROM_PROC(m, NULL);
+  return m;
+}
+#endif /* MRB_USE_REFINEMENT */
+
+mrb_method_t
+mrb_refinement_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine)
+{
+#ifdef MRB_USE_REFINEMENT
+  if (refine && ARY_LEN(refine) > 0) {
+    return refinement_method_search_vm(mrb, cp, mid, refine, NULL);
+  }
+#endif
+  (void)refine;
+  return mrb_method_search_vm(mrb, cp, mid);
+}
+
+mrb_method_t
+mrb_refinement_method_search_vm_super(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine, mrb_value recv)
+{
+#ifdef MRB_USE_REFINEMENT
+  if (refine && ARY_LEN(refine) > 0) {
+    return refinement_method_search_vm(mrb, cp, mid, refine, mrb_class(mrb, recv));
+  }
+#endif
+  (void)refine;
+  (void)recv;
+  *cp = (*cp)->super;
+  return mrb_method_search_vm(mrb, cp, mid);
 }
 
 MRB_API mrb_method_t
