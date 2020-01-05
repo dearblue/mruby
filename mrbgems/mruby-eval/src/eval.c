@@ -107,7 +107,7 @@ create_proc_from_string(mrb_state *mrb, const char *s, mrb_int len, mrb_value bi
         /* when `binding` is nil */
         e = mrb_vm_ci_env(ci);
         if (e == NULL) {
-          e = mrb_env_new(mrb, c, ci, ci->proc->body.irep->nlocals, ci->stack, target_class);
+          e = mrb_env_new(mrb, c, ci, MRB_PROC_IREP(ci->proc)->nlocals, ci->stack, target_class);
           ci->u.env = e;
         }
       }
@@ -133,6 +133,7 @@ exec_irep(mrb_state *mrb, mrb_value self, struct RProc *proc, mrb_func_t posthoo
   mrb->c->ci->argc = 0;
   /* clear block */
   mrb->c->ci->stack[1] = mrb_nil_value();
+  mrb->c->ci[0].activated_refinements = mrb->c->ci[-1].activated_refinements;
   return mrb_exec_irep(mrb, self, proc, posthook);
 }
 
@@ -148,13 +149,13 @@ eval_merge_lvar_hook(mrb_state *mrb, mrb_value dummy_self)
 {
   const mrb_callinfo *orig_ci = &mrb->c->ci[1];
   const struct RProc *orig_proc = orig_ci->proc;
-  const mrb_irep *orig_irep = orig_proc->body.irep;
+  const mrb_irep *orig_irep = MRB_PROC_IREP(orig_proc);
   int orig_nlocals = orig_irep->nlocals;
 
   if (orig_nlocals > 1) {
     struct RProc *proc = (struct RProc *)orig_proc->upper;
     struct REnv *env = MRB_PROC_ENV(orig_proc);
-    eval_merge_lvar(mrb, (mrb_irep *)proc->body.irep, env,
+    eval_merge_lvar(mrb, (mrb_irep *)MRB_PROC_IREP(proc), env,
                     orig_nlocals - 1, orig_irep->lv,
                     mrb->c->ci->stack + 3 /* hook proc + exc + ret val */);
   }

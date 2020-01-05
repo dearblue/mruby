@@ -38,11 +38,17 @@ struct REnv {
 
 void mrb_env_unshare(mrb_state*, struct REnv*);
 
+struct mrb_proc_extra {
+  const mrb_irep *irep;
+  struct RArray *attached_refinements;
+};
+
 struct RProc {
   MRB_OBJECT_HEADER;
   union {
-    const mrb_irep *irep;
+    const mrb_irep *irep_direct;
     mrb_func_t func;
+    struct mrb_proc_extra *extra;
   } body;
   const struct RProc *upper;
   union {
@@ -84,13 +90,20 @@ struct RProc {
 #define MRB_PROC_SCOPE 2048
 #define MRB_PROC_SCOPE_P(p) (((p)->flags & MRB_PROC_SCOPE) != 0)
 
+/* Use field `struct RProc::body.extra` with `struct mrb_proc_extra` */
+#define MRB_PROC_EXTRA_FL (1UL<<12)
+#define MRB_PROC_EXTRA_P(p) (((p)->flags & MRB_PROC_EXTRA_FL) != 0)
+#define MRB_PROC_SET_EXTRA(p, ex) do { (p)->flags |= MRB_PROC_EXTRA_FL; (p)->body.extra = (ex); } while (0)
+#define MRB_PROC_IREP(p) (MRB_PROC_EXTRA_P(p) ? (p)->body.extra->irep : (p)->body.irep_direct)
+#define MRB_PROC_ATTACHED_REFINEMENTS(p) (MRB_PROC_EXTRA_P(p) ? (p)->body.extra->attached_refinements : NULL)
+
 #define mrb_proc_ptr(v)    ((struct RProc*)(mrb_ptr(v)))
 
-struct RProc *mrb_proc_new(mrb_state*, const mrb_irep*);
-struct RProc *mrb_closure_new(mrb_state*, const mrb_irep*);
+struct RProc *mrb_proc_new(mrb_state*, const mrb_irep*, struct RArray*);
+struct RProc *mrb_closure_new(mrb_state*, const mrb_irep*, struct RArray*);
 MRB_API struct RProc *mrb_proc_new_cfunc(mrb_state*, mrb_func_t);
 MRB_API struct RProc *mrb_closure_new_cfunc(mrb_state *mrb, mrb_func_t func, int nlocals);
-void mrb_proc_copy(struct RProc *a, struct RProc *b);
+void mrb_proc_copy(mrb_state *mrb, struct RProc *a, struct RProc *b);
 mrb_int mrb_proc_arity(const struct RProc *p);
 
 /* following functions are defined in mruby-proc-ext so please include it when using */
@@ -131,6 +144,17 @@ MRB_API mrb_value mrb_proc_cfunc_env_get(mrb_state *mrb, mrb_int idx);
 #define MRB_METHOD_CFUNC_P(m) (MRB_METHOD_FUNC_P(m)?TRUE:(MRB_METHOD_PROC(m)?(MRB_PROC_CFUNC_P(MRB_METHOD_PROC(m))):FALSE))
 #define MRB_METHOD_CFUNC(m) (MRB_METHOD_FUNC_P(m)?MRB_METHOD_FUNC(m):((MRB_METHOD_PROC(m)&&MRB_PROC_CFUNC_P(MRB_METHOD_PROC(m)))?MRB_PROC_CFUNC(MRB_METHOD_PROC(m)):NULL))
 
+static inline struct RArray *
+mrb_method_attached_refinements(mrb_method_t m)
+{
+  if (MRB_METHOD_PROC_P(m)) {
+    struct RProc *p = MRB_METHOD_PROC(m);
+
+    return MRB_PROC_ATTACHED_REFINEMENTS(p);
+  }
+
+  return NULL;
+}
 
 #include <mruby/khash.h>
 
@@ -140,7 +164,7 @@ static inline void
 mrb_vm_ci_proc_set(mrb_callinfo *ci, const struct RProc *p)
 {
   ci->proc = p;
-  ci->pc = (p && !MRB_PROC_CFUNC_P(p)) ? p->body.irep->iseq : NULL;
+  ci->pc = (p && !MRB_PROC_CFUNC_P(p)) ? MRB_PROC_IREP(p)->iseq : NULL;
 }
 
 static inline struct RClass *

@@ -661,8 +661,8 @@ main(int argc, char **argv)
         /* adjust stack length of toplevel environment */
         if (mrb->c->cibase->u.env) {
           struct REnv *e = mrb_vm_ci_env(mrb->c->cibase);
-          if (e && MRB_ENV_LEN(e) < proc->body.irep->nlocals) {
-            MRB_ENV_SET_LEN(e, proc->body.irep->nlocals);
+          if (e && MRB_ENV_LEN(e) < MRB_PROC_IREP(proc)->nlocals) {
+            MRB_ENV_SET_LEN(e, MRB_PROC_IREP(proc)->nlocals);
           }
         }
         /* pass a proc for evaluation */
@@ -671,7 +671,7 @@ main(int argc, char **argv)
             proc,
             mrb_top_self(mrb),
             stack_keep);
-        stack_keep = proc->body.irep->nlocals;
+        stack_keep = MRB_PROC_IREP(proc)->nlocals;
         /* did an exception occur? */
         if (mrb->exc) {
           p(mrb, mrb_obj_value(mrb->exc), 0);

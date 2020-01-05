@@ -555,6 +555,7 @@ mrb_obj_alloc(mrb_state *mrb, enum mrb_vtype ttype, struct RClass *cls)
     if (tt != MRB_TT_FALSE &&
         ttype != MRB_TT_SCLASS &&
         ttype != MRB_TT_ICLASS &&
+        ttype != MRB_TT_REFINEMENT &&
         ttype != MRB_TT_ENV &&
         ttype != tt) {
       mrb_raisef(mrb, E_TYPE_ERROR, "allocation failure of %C", cls);
@@ -612,8 +613,8 @@ ci_nregs(mrb_callinfo *ci)
     if (ci->argc < 0) return 3;
     return ci->argc+2;
   }
-  if (!MRB_PROC_CFUNC_P(p) && p->body.irep) {
-    n = p->body.irep->nregs;
+  if (!MRB_PROC_CFUNC_P(p) && MRB_PROC_IREP(p)) {
+    n = MRB_PROC_IREP(p)->nregs;
   }
   if (ci->argc < 0) {
     if (n < 3) n = 3; /* self + args + blk */
@@ -670,6 +671,7 @@ mark_context(mrb_state *mrb, struct mrb_context *c)
     for (ci = c->cibase; ci <= c->ci; ci++) {
       mrb_gc_mark(mrb, (struct RBasic*)ci->proc);
       mrb_gc_mark(mrb, (struct RBasic*)ci->u.target_class);
+      mrb_gc_mark(mrb, (struct RBasic*)ci->activated_refinements);
     }
   }
   /* mark fibers */
@@ -699,6 +701,7 @@ gc_mark_children(mrb_state *mrb, mrb_gc *gc, struct RBasic *obj)
   case MRB_TT_CLASS:
   case MRB_TT_MODULE:
   case MRB_TT_SCLASS:
+  case MRB_TT_REFINEMENT:
     {
       struct RClass *c = (struct RClass*)obj;
 
@@ -719,6 +722,7 @@ gc_mark_children(mrb_state *mrb, mrb_gc *gc, struct RBasic *obj)
 
       mrb_gc_mark(mrb, (struct RBasic*)p->upper);
       mrb_gc_mark(mrb, (struct RBasic*)p->e.env);
+      mrb_gc_mark(mrb, (struct RBasic*)MRB_PROC_ATTACHED_REFINEMENTS(p));
     }
     break;
 
@@ -812,6 +816,7 @@ obj_free(mrb_state *mrb, struct RBasic *obj, int end)
   case MRB_TT_CLASS:
   case MRB_TT_MODULE:
   case MRB_TT_SCLASS:
+  case MRB_TT_REFINEMENT:
     mrb_gc_free_mt(mrb, (struct RClass*)obj);
     mrb_gc_free_iv(mrb, (struct RObject*)obj);
     if (!end)
@@ -880,12 +885,18 @@ obj_free(mrb_state *mrb, struct RBasic *obj, int end)
     {
       struct RProc *p = (struct RProc*)obj;
 
-      if (!MRB_PROC_CFUNC_P(p) && p->body.irep) {
-        mrb_irep *irep = (mrb_irep*)p->body.irep;
-        if (end) {
-          mrb_irep_cutref(mrb, irep);
+      if (!MRB_PROC_CFUNC_P(p)) {
+        mrb_irep *irep = (mrb_irep*)MRB_PROC_IREP(p);
+
+        if (irep) {
+          if (end) {
+            mrb_irep_cutref(mrb, irep);
+          }
+          mrb_irep_decref(mrb, irep);
+          if (MRB_PROC_EXTRA_P(p)) {
+            mrb_free(mrb, p->body.extra);
+          }
         }
-        mrb_irep_decref(mrb, irep);
       }
     }
     break;
@@ -999,6 +1010,7 @@ gc_gray_counts(mrb_state *mrb, mrb_gc *gc, struct RBasic *obj)
   case MRB_TT_CLASS:
   case MRB_TT_SCLASS:
   case MRB_TT_MODULE:
+  case MRB_TT_REFINEMENT:
     {
       struct RClass *c = (struct RClass*)obj;
 
@@ -1057,6 +1069,9 @@ gc_gray_counts(mrb_state *mrb, mrb_gc *gc, struct RBasic *obj)
     break;
 
   case MRB_TT_PROC:
+    children+=3;
+    break;
+
   case MRB_TT_RANGE:
   case MRB_TT_BREAK:
     children+=2;

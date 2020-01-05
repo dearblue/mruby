@@ -37,7 +37,7 @@ os_memsize_of_method(mrb_state* mrb, mrb_value method_obj)
   struct RProc *proc = mrb_proc_ptr(proc_value);
 
   size = sizeof(struct RProc);
-  if (!MRB_PROC_CFUNC_P(proc)) size += os_memsize_of_irep(mrb, proc->body.irep);
+  if (!MRB_PROC_CFUNC_P(proc)) size += os_memsize_of_irep(mrb, MRB_PROC_IREP(proc));
   return size;
 }
 
@@ -100,7 +100,7 @@ os_memsize_of_object(mrb_state* mrb, mrb_value obj)
       struct RProc* proc = mrb_proc_ptr(obj);
       size += mrb_objspace_page_slot_size();
       size += MRB_ENV_LEN(proc->e.env) * sizeof(mrb_value);
-      if(!MRB_PROC_CFUNC_P(proc)) size += os_memsize_of_irep(mrb, proc->body.irep);
+      if(!MRB_PROC_CFUNC_P(proc)) size += os_memsize_of_irep(mrb, MRB_PROC_IREP(proc));
       break;
     }
     case MRB_TT_RANGE:

@@ -159,6 +159,7 @@ typedef struct {
     struct REnv *env;
     struct RClass *target_class;
   } u;
+  struct RArray *activated_refinements;
 } mrb_callinfo;
 
 enum mrb_fiber_state {

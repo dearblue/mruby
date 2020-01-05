@@ -47,7 +47,7 @@ each_backtrace(mrb_state *mrb, ptrdiff_t ciidx, each_backtrace_func func, void *
     if (!ci->proc) continue;
     if (MRB_PROC_CFUNC_P(ci->proc)) continue;
 
-    irep = ci->proc->body.irep;
+    irep = MRB_PROC_IREP(ci->proc);
     if (!irep) continue;
     if (mrb->c->cibase[i].pc) {
       pc = &mrb->c->cibase[i].pc[-1];
@@ -66,7 +66,7 @@ each_backtrace(mrb_state *mrb, ptrdiff_t ciidx, each_backtrace_func func, void *
         if (!ci->proc) continue;
         if (MRB_PROC_CFUNC_P(ci->proc)) continue;
 
-        irep = ci->proc->body.irep;
+        irep = MRB_PROC_IREP(ci->proc);
         if (!irep) continue;
 
         if (mrb->c->cibase[j].pc) {

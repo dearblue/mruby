@@ -20,7 +20,7 @@ mrb_proc_source_location(mrb_state *mrb, struct RProc *p)
     return mrb_nil_value();
   }
   else {
-    const mrb_irep *irep = p->body.irep;
+    const mrb_irep *irep = MRB_PROC_IREP(p);
     int32_t line;
     const char *filename;
 
@@ -46,7 +46,7 @@ mrb_proc_inspect(mrb_state *mrb, mrb_value self)
   mrb_str_cat_str(mrb, str, mrb_ptr_to_str(mrb, mrb_cptr(self)));
 
   if (!MRB_PROC_CFUNC_P(p)) {
-    const mrb_irep *irep = p->body.irep;
+    const mrb_irep *irep = MRB_PROC_IREP(p);
     const char *filename;
     int32_t line;
     mrb_str_cat_lit(mrb, str, "@");
@@ -121,7 +121,7 @@ mrb_proc_parameters(mrb_state *mrb, mrb_value self)
     // TODO cfunc aspec is not implemented yet
     return mrb_ary_new(mrb);
   }
-  irep = proc->body.irep;
+  irep = MRB_PROC_IREP(proc);
   if (!irep) {
     return mrb_ary_new(mrb);
   }
