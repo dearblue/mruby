@@ -41,7 +41,7 @@ static const struct RProc call_proc = {
 };
 
 struct RProc*
-mrb_proc_new(mrb_state *mrb, const mrb_irep *irep)
+mrb_proc_new(mrb_state *mrb, const mrb_irep *irep, struct RArray *atrefs)
 {
   struct RProc *p;
   mrb_callinfo *ci = mrb->c->ci;
@@ -67,7 +67,18 @@ mrb_proc_new(mrb_state *mrb, const mrb_irep *irep)
     p->upper = ci->proc;
     p->e.target_class = tc;
   }
-  p->body.irep = irep;
+
+#ifdef MRB_USE_REFINEMENT
+  if (atrefs) {
+    struct mrb_proc_extra *ex = (struct mrb_proc_extra*)mrb_malloc(mrb, sizeof(struct mrb_proc_extra));
+    ex->irep = irep;
+    ex->attached_refinements = atrefs;
+    MRB_PROC_SET_EXTRA(p, ex);
+    mrb_field_write_barrier(mrb, (struct RBasic*)p, (struct RBasic*)atrefs);
+  }
+  else
+#endif
+    p->body.irep_direct = irep;
   if (irep) {
     mrb_irep_incref(mrb, (mrb_irep*)irep);
   }
@@ -109,7 +120,7 @@ closure_setup(mrb_state *mrb, struct RProc *p)
   else if (up) {
     struct RClass *tc = ci->u.target_class;
 
-    e = mrb_env_new(mrb, mrb->c, ci, up->body.irep->nlocals, ci->stack, tc);
+    e = mrb_env_new(mrb, mrb->c, ci, MRB_PROC_IREP(up)->nlocals, ci->stack, tc);
     ci->u.env = e;
     if (MRB_PROC_ENV_P(up) && MRB_PROC_ENV(up)->cxt == NULL) {
       e->mid = MRB_PROC_ENV(up)->mid;
@@ -123,9 +134,9 @@ closure_setup(mrb_state *mrb, struct RProc *p)
 }
 
 struct RProc*
-mrb_closure_new(mrb_state *mrb, const mrb_irep *irep)
+mrb_closure_new(mrb_state *mrb, const mrb_irep *irep, struct RArray *atrefs)
 {
-  struct RProc *p = mrb_proc_new(mrb, irep);
+  struct RProc *p = mrb_proc_new(mrb, irep, atrefs);
 
   closure_setup(mrb, p);
   return p;
@@ -203,16 +214,29 @@ mrb_proc_cfunc_env_get(mrb_state *mrb, mrb_int idx)
 void
 mrb_proc_copy(mrb_state *mrb, struct RProc *a, struct RProc *b)
 {
-  if (a->body.irep) {
+  const mrb_irep *irep = a->body.irep_direct;
+
+  if (irep) {
     /* already initialized proc */
     return;
   }
   a->flags = b->flags;
-  a->body = b->body;
-  a->upper = b->upper;
-  if (!MRB_PROC_CFUNC_P(a) && a->body.irep) {
-    mrb_irep_incref(mrb, (mrb_irep*)a->body.irep);
+#ifdef MRB_USE_REFINEMENT
+  if (MRB_PROC_EXTRA_P(b)) {
+    a->body.extra = (struct mrb_proc_extra*)mrb_calloc(mrb, 1, sizeof(struct mrb_proc_extra));
+    mrb_irep_incref(mrb, (mrb_irep*)b->body.extra->irep);
+    *a->body.extra = *b->body.extra;
+    mrb_field_write_barrier(mrb, (struct RBasic*)a, (struct RBasic*)a->body.extra->attached_refinements);
   }
+  else
+#endif
+  {
+    a->body = b->body;
+    if (!MRB_PROC_CFUNC_P(a) && a->body.irep_direct) {
+      mrb_irep_incref(mrb, (mrb_irep*)a->body.irep_direct);
+    }
+  }
+  a->upper = b->upper;
   a->e.env = b->e.env;
   /* a->e.target_class = a->e.target_class; */
 }
@@ -301,7 +325,7 @@ mrb_proc_arity(const struct RProc *p)
     return -1;
   }
 
-  irep = p->body.irep;
+  irep = MRB_PROC_IREP(p);
   if (!irep) {
     return 0;
   }
@@ -335,7 +359,7 @@ mrb_proc_local_variables(mrb_state *mrb, const struct RProc *proc)
   vars = mrb_hash_new(mrb);
   while (proc) {
     if (MRB_PROC_CFUNC_P(proc)) break;
-    irep = proc->body.irep;
+    irep = MRB_PROC_IREP(proc);
     if (irep->lv) {
       for (i = 0; i + 1 < irep->nlocals; ++i) {
         if (irep->lv[i]) {
@@ -373,7 +397,7 @@ mrb_proc_get_caller(mrb_state *mrb, struct REnv **envp)
     struct REnv *e = mrb_vm_ci_env(ci);
 
     if (e == NULL) {
-      int nstacks = proc->body.irep->nlocals;
+      int nstacks = MRB_PROC_IREP(proc)->nlocals;
       e = mrb_env_new(mrb, c, ci, nstacks, ci->stack, tc);
       ci->u.env = e;
     }

@@ -89,8 +89,8 @@ fiber_init(mrb_state *mrb, mrb_value self)
 
   /* initialize VM stack */
   slen = FIBER_STACK_INIT_SIZE;
-  if (p->body.irep->nregs > slen) {
-    slen += p->body.irep->nregs;
+  if (MRB_PROC_IREP(p)->nregs > slen) {
+    slen += MRB_PROC_IREP(p)->nregs;
   }
   c->stbase = (mrb_value *)mrb_malloc(mrb, slen*sizeof(mrb_value));
   c->stend = c->stbase + slen;

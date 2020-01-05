@@ -121,7 +121,7 @@ create_proc_from_string(mrb_state *mrb, const char *s, mrb_int len, mrb_value bi
         /* when `binding` is nil */
         e = mrb_vm_ci_env(ci);
         if (e == NULL) {
-          e = mrb_env_new(mrb, c, ci, ci->proc->body.irep->nlocals, ci->stack, target_class);
+          e = mrb_env_new(mrb, c, ci, MRB_PROC_IREP(ci->proc)->nlocals, ci->stack, target_class);
           ci->u.env = e;
         }
       }
@@ -137,6 +137,7 @@ create_proc_from_string(mrb_state *mrb, const char *s, mrb_int len, mrb_value bi
   mrb_parser_free(p);
   mrbc_context_free(mrb, cxt);
 
+  MRB_PROC_SET_SEPARATE_REFINEMENTS(proc);
   return proc;
 }
 
@@ -148,6 +149,7 @@ exec_irep(mrb_state *mrb, mrb_value self, struct RProc *proc)
   mrb->c->ci->nk = 0;
   /* clear block */
   mrb->c->ci->stack[1] = mrb_nil_value();
+  mrb_vm_ci_activated_refinements_set(&mrb->c->ci[0], mrb_vm_ci_activated_refinements(&mrb->c->ci[-1]));
   return mrb_exec_irep(mrb, self, proc);
 }
 

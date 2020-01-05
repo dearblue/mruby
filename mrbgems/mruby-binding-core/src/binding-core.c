@@ -80,7 +80,7 @@ binding_local_variable_search(mrb_state *mrb, const struct RProc *proc, struct R
   while (proc) {
     if (MRB_PROC_CFUNC_P(proc)) break;
 
-    const mrb_irep *irep = proc->body.irep;
+    const mrb_irep *irep = MRB_PROC_IREP(proc);
     const mrb_sym *lv;
     if (irep && (lv = irep->lv)) {
       for (int i = 0; i + 1 < irep->nlocals; i++, lv++) {
@@ -156,7 +156,7 @@ binding_local_variable_set(mrb_state *mrb, mrb_value self)
     }
   }
   else {
-    mrb_proc_merge_lvar(mrb, (mrb_irep*)proc->body.irep, env, 1, &varname, &obj);
+    mrb_proc_merge_lvar(mrb, (mrb_irep*)MRB_PROC_IREP(proc), env, 1, &varname, &obj);
   }
 
   return obj;
@@ -193,7 +193,7 @@ binding_source_location(mrb_state *mrb, mrb_value self)
     srcloc = mrb_nil_value();
   }
   else {
-    const mrb_irep *irep = proc->upper->body.irep;
+    const mrb_irep *irep = MRB_PROC_IREP(proc->upper);
     mrb_int pc = binding_extract_pc(mrb, self);
     if (pc < 0) {
       srcloc = mrb_nil_value();
@@ -242,7 +242,7 @@ mrb_binding_wrap_lvspace(mrb_state *mrb, const struct RProc *proc, struct REnv *
   irep->lv = (mrb_sym*)mrb_calloc(mrb, 1, sizeof(mrb_sym)); /* initial allocation for dummy */
   irep->nlocals = 1;
   irep->nregs = 1;
-  lvspace->body.irep = irep;
+  lvspace->body.irep_direct = irep;
   lvspace->upper = proc;
   if (*envp) {
     lvspace->e.env = *envp;
@@ -275,7 +275,7 @@ mrb_f_binding(mrb_state *mrb, mrb_value self)
   }
 
   if (proc && !MRB_PROC_CFUNC_P(proc)) {
-    const mrb_irep *irep = proc->body.irep;
+    const mrb_irep *irep = MRB_PROC_IREP(proc);
     mrb_iv_set(mrb, binding, MRB_SYM(pc), mrb_fixnum_value(mrb->c->ci[-1].pc - irep->iseq - 1 /* step back */));
   }
   proc = mrb_binding_wrap_lvspace(mrb, proc, &env);
