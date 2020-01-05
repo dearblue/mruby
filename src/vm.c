@@ -420,6 +420,9 @@ ci_nregs(mrb_callinfo *ci)
   return n;
 }
 
+mrb_method_t mrb_method_search_vm_with_refinement(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine);
+mrb_method_t mrb_method_search_vm_with_refinement_super(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine);
+
 mrb_value
 mrb_funcall_with_refinement(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int argc, const mrb_value *argv, mrb_value blk, struct RArray *refine)
 {
@@ -460,11 +463,11 @@ mrb_funcall_with_refinement(mrb_state *mrb, mrb_value self, mrb_sym mid, mrb_int
       mrb_raisef(mrb, E_ARGUMENT_ERROR, "negative argc for funcall (%i)", argc);
     }
     c = mrb_class(mrb, self);
-    m = mrb_method_search_vm(mrb, &c, mid);
+    m = mrb_method_search_vm_with_refinement(mrb, &c, mid, refine);
     if (MRB_METHOD_UNDEF_P(m)) {
       mrb_sym missing = MRB_SYM(method_missing);
       mrb_value args = mrb_ary_new_from_values(mrb, argc, argv);
-      m = mrb_method_search_vm(mrb, &c, missing);
+      m = mrb_method_search_vm_with_refinement(mrb, &c, missing, refine);
       if (MRB_METHOD_UNDEF_P(m)) {
         mrb_method_missing(mrb, mid, self, args);
       }
@@ -685,11 +688,11 @@ mrb_f_send(mrb_state *mrb, mrb_value self)
   ci = mrb->c->ci;
   if (ci->acc < 0) {
   funcall:
-    return mrb_funcall_with_block(mrb, self, name, argc, argv, block);
+    return mrb_funcall_with_refinement(mrb, self, name, argc, argv, block, ci[-1].activated_refinements);
   }
 
   c = mrb_class(mrb, self);
-  m = mrb_method_search_vm(mrb, &c, name);
+  m = mrb_method_search_vm_with_refinement(mrb, &c, name, ci[-1].activated_refinements);
   if (MRB_METHOD_UNDEF_P(m)) {            /* call method_mising */
     goto funcall;
   }
@@ -1557,10 +1560,11 @@ RETRY_TRY_BLOCK:
         regs[bidx] = blk;
       }
       cls = mrb_class(mrb, recv);
-      m = mrb_method_search_vm(mrb, &cls, mid);
+//fprintf(stderr, "%s:%d:%s: mid=%s(0x%04x)\n", __FILE__, __LINE__, __func__, mrb_sym_name(mrb, mid), (int)mid);
+      m = mrb_method_search_vm_with_refinement(mrb, &cls, mid, ci->activated_refinements);
       if (MRB_METHOD_UNDEF_P(m)) {
         mrb_sym missing = MRB_SYM(method_missing);
-        m = mrb_method_search_vm(mrb, &cls, missing);
+        m = mrb_method_search_vm_with_refinement(mrb, &cls, missing, ci->activated_refinements);
         if (MRB_METHOD_UNDEF_P(m) || (missing == mrb->c->ci->mid && mrb_obj_eq(mrb, regs[0], recv))) {
           mrb_value args = (argc < 0) ? regs[a+1] : mrb_ary_new_from_values(mrb, c, regs+a+1);
           mrb_method_missing(mrb, mid, recv, args);
@@ -1742,8 +1746,8 @@ RETRY_TRY_BLOCK:
         regs[bidx] = blk;
         ci = mrb->c->ci;
       }
-      cls = target_class->super;
-      m = mrb_method_search_vm(mrb, &cls, mid);
+      cls = target_class;
+      m = mrb_method_search_vm_with_refinement_super(mrb, &cls, mid, ci->activated_refinements);
       if (MRB_METHOD_UNDEF_P(m)) {
         mrb_sym missing = MRB_SYM(method_missing);
 
@@ -1754,7 +1758,7 @@ RETRY_TRY_BLOCK:
         if (mid != missing) {
           cls = mrb_class(mrb, recv);
         }
-        m = mrb_method_search_vm(mrb, &cls, missing);
+        m = mrb_method_search_vm_with_refinement(mrb, &cls, missing, ci->activated_refinements);
         if (MRB_METHOD_UNDEF_P(m)) { /* just in case */
           mrb_value args = (argc < 0) ? regs[a+1] : mrb_ary_new_from_values(mrb, b, regs+a+1);
           mrb_method_missing(mrb, missing, recv, args);

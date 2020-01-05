@@ -1795,6 +1795,108 @@ mrb_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid)
   return m;                  /* no method */
 }
 
+static struct RClass *
+lookup_refinement(mrb_state *mrb, mrb_value refhash, struct RClass *c)
+{
+  mrb_value o = mrb_hash_fetch(mrb, refhash, mrb_obj_value(c), mrb_nil_value());
+  if (mrb_nil_p(o)) return NULL;
+  mrb_check_type(mrb, o, MRB_TT_REFINEMENT);
+  return mrb_class_ptr(o);
+}
+
+static mrb_method_t
+mrb_method_search_vm_with_refinement_active(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine, struct RClass *supercaller)
+{
+  mrb_method_t m;
+  struct RClass *c = *cp;
+  intptr_t reflen = ARY_LEN(refine);
+  const mrb_value *refp = ARY_PTR(refine) + reflen - 1;
+  const mrb_value *rp;
+  mrb_sym id_refinements = MRB_SYM(__refinements__);
+  intptr_t i;
+
+  for (i = reflen, rp = refp; i > 0; i--, rp--) {
+    mrb_value refhash = *rp;
+
+    if (!mrb_hash_p(refhash)) {
+      mrb_value rmod = refhash;
+      mrb_check_type(mrb, rmod, MRB_TT_MODULE);
+      refhash = mrb_iv_get(mrb, rmod, id_refinements);
+      if (mrb_hash_p(refhash)) {
+        mrb_ary_set(mrb, mrb_obj_value(refine), i - 1, refhash);
+      }
+    }
+  }
+
+  for (; c; c = c->super) {
+    struct RClass *cc;
+
+    //if (c->tt == MRB_TT_ICLASS && !(c->flags & MRB_FL_CLASS_IS_PREPENDED)) {
+    if (c->tt == MRB_TT_ICLASS) {
+      // Get original module if included or prepended
+      cc = c->c;
+    }
+    else {
+      cc = c;
+    }
+
+    for (i = reflen, rp = refp; i > 0; i--, rp--) {
+      struct RClass *cx;
+      mrb_value refhash = *rp;
+
+      if (!mrb_hash_p(refhash)) {
+        continue;
+      }
+
+      cx = lookup_refinement(mrb, refhash, cc);
+      if (cx) {
+        if (supercaller) {
+          if (supercaller == cx) {
+            supercaller = NULL;
+          }
+        }
+        else if (lookup_method(mrb, cx, mid, &m)) {
+          goto found_method;
+        }
+      }
+    }
+
+    supercaller = NULL;
+
+    if (lookup_method(mrb, c, mid, &m)) {
+found_method:
+      if (MRB_METHOD_UNDEF_P(m)) break;
+      *cp = c;
+      return m;
+    }
+  }
+  MRB_METHOD_FROM_PROC(m, NULL);
+  return m;                  /* no method */
+}
+
+mrb_method_t
+mrb_method_search_vm_with_refinement(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine)
+{
+  if (refine && ARY_LEN(refine) > 0) {
+    return mrb_method_search_vm_with_refinement_active(mrb, cp, mid, refine, NULL);
+  }
+  else {
+    return mrb_method_search_vm(mrb, cp, mid);
+  }
+}
+
+mrb_method_t
+mrb_method_search_vm_with_refinement_super(mrb_state *mrb, struct RClass **cp, mrb_sym mid, struct RArray *refine)
+{
+  if (refine && ARY_LEN(refine) > 0) {
+    return mrb_method_search_vm_with_refinement_active(mrb, cp, mid, refine, *cp);
+  }
+  else {
+    *cp = (*cp)->super;
+    return mrb_method_search_vm(mrb, cp, mid);
+  }
+}
+
 MRB_API mrb_method_t
 mrb_method_search(mrb_state *mrb, struct RClass* c, mrb_sym mid)
 {
