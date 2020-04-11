@@ -71,8 +71,10 @@ struct mrb_state;
 
 #ifdef MRB_ENDIAN_BIG
 # define MRB_ENDIAN_LOHI(a,b) a b
+# define MRB_ENDIAN_LOHI_FIELD(a,b) a, b
 #else
 # define MRB_ENDIAN_LOHI(a,b) b a
+# define MRB_ENDIAN_LOHI_FIELD(a,b) b, a
 #endif
 
 #ifndef MRB_WITHOUT_FLOAT
@@ -255,6 +257,12 @@ typedef void mrb_value;
 #define mrb_bool(o)   (mrb_type(o) != MRB_TT_FALSE)
 #endif
 #define mrb_test(o)   mrb_bool(o)
+
+#define MRB_UNDEF_VALUE()       MRB_IMPLANT_VALUE(MRB_TT_UNDEF, 0)
+#define MRB_NIL_VALUE()         MRB_IMPLANT_VALUE(MRB_TT_FALSE, 0)
+#define MRB_FALSE_VALUE()       MRB_IMPLANT_VALUE(MRB_TT_FALSE, 1)
+#define MRB_TRUE_VALUE()        MRB_IMPLANT_VALUE(MRB_TT_TRUE, 1)
+#define MRB_FIXNUM_VALUE(n)     MRB_IMPLANT_VALUE(MRB_TT_FIXNUM, n)
 
 /**
  * Returns a float in Ruby.

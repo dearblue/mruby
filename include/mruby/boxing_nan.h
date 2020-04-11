@@ -32,9 +32,7 @@
  */
 typedef struct mrb_value {
   union {
-    mrb_float f;
     union {
-      void *p;
       struct {
         MRB_ENDIAN_LOHI(
           uint32_t ttt;
@@ -44,7 +42,9 @@ typedef struct mrb_value {
           };
         )
       };
+      void *p;
     } value;
+    mrb_float f;
   };
 } mrb_value;
 
@@ -64,14 +64,16 @@ typedef struct mrb_value {
 #define BOXNAN_SHIFT_LONG_POINTER(v) 0
 #endif
 
+#define BOXNAN_IMPLANT_TYPE(tt) (UINT32_C(0xfff00000)|(((tt)+UINT32_C(1))<<14))
+
 #define BOXNAN_SET_VALUE(o, tt, attr, v) do {\
   (o).attr = (v);\
-  (o).value.ttt = 0xfff00000 | (((tt)+1)<<14);\
+  (o).value.ttt = BOXNAN_IMPLANT_TYPE(tt);\
 } while (0)
 
 #define BOXNAN_SET_OBJ_VALUE(o, tt, v) do {\
   (o).value.p = (void*)((uintptr_t)(v)>>2);\
-  (o).value.ttt = (0xfff00000|(((tt)+1)<<14)|BOXNAN_SHIFT_LONG_POINTER(v));\
+  (o).value.ttt = BOXNAN_IMPLANT_TYPE(tt)|BOXNAN_SHIFT_LONG_POINTER(v);\
 } while (0)
 
 #define SET_FLOAT_VALUE(mrb,r,v) do { \
@@ -92,5 +94,7 @@ typedef struct mrb_value {
 #define SET_OBJ_VALUE(r,v) BOXNAN_SET_OBJ_VALUE(r, (((struct RObject*)(v))->tt), (v))
 #define SET_CPTR_VALUE(mrb,r,v) BOXNAN_SET_OBJ_VALUE(r, MRB_TT_CPTR, v)
 #define SET_UNDEF_VALUE(r) BOXNAN_SET_VALUE(r, MRB_TT_UNDEF, value.i, 0)
+
+#define MRB_IMPLANT_VALUE(tt, v) { MRB_ENDIAN_LOHI_FIELD(BOXNAN_IMPLANT_TYPE(tt), v) }
 
 #endif  /* MRUBY_BOXING_NAN_H */

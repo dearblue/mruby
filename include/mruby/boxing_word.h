@@ -72,6 +72,7 @@ enum mrb_special_consts {
  *   object: ...PPPP P000 (any bits are 1)
  */
 typedef union mrb_value {
+  unsigned long w;
   union {
     void *p;
 #ifdef MRB_64BIT
@@ -89,7 +90,6 @@ typedef union mrb_value {
 #endif
     struct RCptr *vp;
   } value;
-  unsigned long w;
 } mrb_value;
 
 MRB_API mrb_value mrb_word_boxing_cptr_value(struct mrb_state*, void*);
@@ -176,5 +176,14 @@ mrb_type(mrb_value o)
          mrb_undef_p(o)  ? MRB_TT_UNDEF :
          o.value.bp->tt;
 }
+
+#define MRB_IMPLANT_VALUE(tt, v) \
+  { \
+    tt == MRB_TT_FIXNUM ? (((v) << BOXWORD_FIXNUM_SHIFT) | BOXWORD_FIXNUM_FLAG) : \
+    tt == MRB_TT_UNDEF ? MRB_Qundef : \
+    tt == MRB_TT_TRUE ? MRB_Qtrue : \
+    tt == MRB_TT_FALSE && v != 0 ? MRB_Qfalse : \
+    MRB_Qnil \
+  }
 
 #endif  /* MRUBY_BOXING_WORD_H */

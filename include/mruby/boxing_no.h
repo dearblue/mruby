@@ -11,11 +11,11 @@
 #define MRB_SYMBOL_SHIFT 0
 
 union mrb_value_union {
+  mrb_int i;
 #ifndef MRB_WITHOUT_FLOAT
   mrb_float f;
 #endif
   void *p;
-  mrb_int i;
   mrb_sym sym;
 };
 
@@ -54,5 +54,7 @@ typedef struct mrb_value {
 #define SET_OBJ_VALUE(r,v) BOXNIX_SET_VALUE(r, (((struct RObject*)(v))->tt), value.p, (v))
 #define SET_CPTR_VALUE(mrb,r,v) BOXNIX_SET_VALUE(r, MRB_TT_CPTR, value.p, v)
 #define SET_UNDEF_VALUE(r) BOXNIX_SET_VALUE(r, MRB_TT_UNDEF, value.i, 0)
+
+#define MRB_IMPLANT_VALUE(tt, v) { { v }, tt }
 
 #endif  /* MRUBY_BOXING_NO_H */
