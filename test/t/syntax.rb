@@ -681,3 +681,110 @@ assert('_0 is not numbered parameter') do
   _0 = :l
   assert_equal(:l, ->{_0}.call)
 end
+
+assert('retry in ensure') do
+  assert_raise(LocalJumpError) do
+    limit = 100
+    total = 0
+    10.times do |i|
+      begin
+        limit -= 1
+      ensure
+        total += i
+        retry
+      end
+    end
+  end
+end
+
+assert('redo in ensure') do
+  limit = 100
+  total = 0
+  assert_nothing_raised do
+    10.times do |i|
+      break unless limit > 0
+      limit -= 1
+      begin
+      ensure
+        total += i + 1
+        redo
+      end
+    end
+  end
+  assert_equal 0, limit
+  assert_equal 100, total
+
+  limit = 100
+  total = 0
+  assert_nothing_raised do
+    10.times do |i|
+      break unless limit > 0
+      limit -= 1
+      begin
+        raise "exception!"
+      rescue
+        total += i + 1
+      ensure
+        redo
+      end
+    end
+  end
+  assert_equal 0, limit
+  assert_equal 100, total
+end
+
+assert('break in ensure') do
+  limit = 100
+  total = 0
+  assert_nothing_raised do
+    10.times do |i|
+      break unless limit > 0
+      limit -= 1
+      begin
+      ensure
+        total += i + 1
+        break
+      end
+    end
+  end
+  assert_equal 99, limit
+  assert_equal 1, total
+
+  limit = 100
+  total = 0
+  assert_nothing_raised do
+    10.times do |i|
+      break unless limit > 0
+      limit -= 1
+      begin
+        raise "exception!"
+      rescue
+        total += i + 1
+      ensure
+        break
+      end
+    end
+  end
+  assert_equal 99, limit
+  assert_equal 1, total
+end
+
+assert('redo in rescue with ensure') do
+  limit = 100
+  total = 0
+  assert_nothing_raised do
+    10.times do |i|
+      break unless limit > 0
+      limit -= 1
+      begin
+        raise "exception!"
+      rescue
+        redo
+      ensure
+        total += i + 1
+      end
+    end
+  end
+  assert_equal 0, limit
+  assert_equal 100, total
+end
