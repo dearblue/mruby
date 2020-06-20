@@ -753,14 +753,18 @@ for_body(codegen_scope *s, node *tree)
 static int
 lambda_body(codegen_scope *s, node *tree, int blk)
 {
+  struct loopinfo *lp;
   codegen_scope *parent = s;
   s = scope_new(s->mrb, s, tree->car);
 
   s->mscope = !blk;
 
   if (blk) {
-    struct loopinfo *lp = loop_push(s, LOOP_BLOCK);
+    lp = loop_push(s, LOOP_BLOCK);
     lp->pc0 = new_label(s);
+  }
+  else {
+    lp = NULL;
   }
   tree = tree->cdr;
   if (tree->car == NULL) {
@@ -913,6 +917,9 @@ lambda_body(codegen_scope *s, node *tree, int blk)
         n = n->cdr;
       }
     }
+  }
+  if (lp) {
+    lp->pc2 = new_label(s);
   }
 
   codegen(s, tree->cdr->car, VAL);
@@ -2319,13 +2326,25 @@ codegen(codegen_scope *s, node *tree, int val)
     break;
 
   case NODE_REDO:
-    if (!s->loop || s->loop->type == LOOP_BEGIN || s->loop->type == LOOP_RESCUE) {
-      raise_error(s, "unexpected redo");
+    {
+      const struct loopinfo *lp = s->loop;
+
+      for (; lp != NULL; lp = lp->prev) {
+        if (lp->type == LOOP_NORMAL ||
+            lp->type == LOOP_BLOCK ||
+            lp->type == LOOP_FOR) {
+          break;
+        }
+      }
+
+      if (!lp) {
+        raise_error(s, "unexpected redo");
+      }
+      else {
+        genjmp(s, OP_JUW, lp->pc2);
+      }
+      if (val) push();
     }
-    else {
-      genjmp(s, OP_JUW, s->loop->pc2);
-    }
-    if (val) push();
     break;
 
   case NODE_RETRY:
