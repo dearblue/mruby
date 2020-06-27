@@ -218,14 +218,27 @@ mrb_realloc_simple(mrb_state *mrb, void *p,  size_t len)
 }
 
 MRB_API void*
-mrb_realloc(mrb_state *mrb, void *p, size_t len)
+mrb_reallocf_simple(mrb_state *mrb, void *p,  size_t len)
+{
+  void *p2 = mrb_realloc_simple(mrb, p, len);
+
+  if (p2 == NULL && p && len > 0) {
+    mrb_free(mrb, p);
+  }
+
+  return p2;
+}
+
+typedef void *mrb_realloc_func(mrb_state *mrb, void *p, size_t len);
+
+static void*
+mrb_realloc_common(mrb_state *mrb, void *p, size_t len, mrb_realloc_func *func)
 {
   void *p2;
 
-  p2 = mrb_realloc_simple(mrb, p, len);
+  p2 = func(mrb, p, len);
   if (len == 0) return p2;
   if (p2 == NULL) {
-    mrb_free(mrb, p);
     mrb->gc.out_of_memory = TRUE;
     mrb_raise_nomemory(mrb);
   }
@@ -234,6 +247,18 @@ mrb_realloc(mrb_state *mrb, void *p, size_t len)
   }
 
   return p2;
+}
+
+MRB_API void*
+mrb_realloc(mrb_state *mrb, void *p, size_t len)
+{
+  return mrb_realloc_common(mrb, p, len, mrb_realloc_simple);
+}
+
+MRB_API void*
+mrb_reallocf(mrb_state *mrb, void *p, size_t len)
+{
+  return mrb_realloc_common(mrb, p, len, mrb_reallocf_simple);
 }
 
 MRB_API void*

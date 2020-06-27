@@ -1081,7 +1081,9 @@ MRB_API mrb_value mrb_sym_str(mrb_state*,mrb_sym);
 MRB_API void *mrb_malloc(mrb_state*, size_t);         /* raise RuntimeError if no mem */
 MRB_API void *mrb_calloc(mrb_state*, size_t, size_t); /* ditto */
 MRB_API void *mrb_realloc(mrb_state*, void*, size_t); /* ditto */
+MRB_API void *mrb_reallocf(mrb_state*, void*, size_t); /* free and raise RuntimeError if no mem */
 MRB_API void *mrb_realloc_simple(mrb_state*, void*, size_t); /* return NULL if no memory available */
+MRB_API void *mrb_reallocf_simple(mrb_state*, void*, size_t); /* free and return NULL if no memory available */
 MRB_API void *mrb_malloc_simple(mrb_state*, size_t);  /* return NULL if no memory available */
 MRB_API struct RBasic *mrb_obj_alloc(mrb_state*, enum mrb_vtype, struct RClass*);
 MRB_API void mrb_free(mrb_state*, void*);
