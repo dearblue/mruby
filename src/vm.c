@@ -2091,6 +2091,7 @@ RETRY_TRY_BLOCK:
             ci = mrb->c->ci;
           }
           if (ci->acc < 0) {
+          throw_break:
             ci = cipop(mrb);
             mrb_gc_arena_restore(mrb, ai);
             mrb->c->vmexec = FALSE;
@@ -2117,8 +2118,8 @@ RETRY_TRY_BLOCK:
           }
           mrb->c->stack = ci->stackent;
           while (mrb->c->cibase < ci && ci[-1].proc != proc->upper) {
-            if (ci[-1].acc == CI_ACC_SKIP) {
-              goto L_BREAK_ERROR;
+            if (ci->acc == CI_ACC_SKIP) {
+              goto throw_break;
             }
             CHECKPOINT_RESTORE(RBREAK_TAG_BREAK_UPPER) {
               /* do nothing */
