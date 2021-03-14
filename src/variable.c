@@ -29,8 +29,10 @@
  *   - `capa_1` means "capacity - 1".
  */
 typedef struct iv_tbl {
-  char dummy1;
-  char dummy2[];
+  // mrb_value vals[capa_1 + 1];
+  // mrb_sym syms[capa_1 + 1];
+  uint16_t size;
+  uint16_t capa_1;
 } iv_tbl;
 
 typedef struct iv_tbl_iter {
@@ -47,14 +49,11 @@ typedef struct iv_tbl_iter {
 #define IV_DELETED_SYM (IV_EMPTY_SYM - 1)
 
 #define U16(v) ((uint16_t)(v))
-#define U16P(p) ((uint16_t*)(p))
 #define U32(v) ((uint32_t)(v))
 
 #define sym_hash_code(sym) U32((sym) ^ ((sym) << 2) ^ ((sym) >> 2))
-#define iv_size_ptr(t) U16P(t)
-#define iv_capa_1_ptr(t) U16P((t) + sizeof(uint16_t))
-#define iv_syms(t) ((mrb_sym*)((t) - sizeof(mrb_sym) * iv_capa(t)))
-#define iv_vals(t) ((mrb_value*)((t) - iv_offset_for(iv_capa(t))))
+#define iv_syms(t) ((mrb_sym*)((char *)(t) - sizeof(mrb_sym) * iv_capa(t)))
+#define iv_vals(t) ((mrb_value*)((char *)(t) - iv_offset_for(iv_capa(t))))
 
 #define iv_each_by_hash_code(t, hash_code, it_var, code) do {                 \
   uint32_t capa__ = iv_capa(t);                                               \
@@ -93,7 +92,7 @@ iv_it_init(iv_tbl_iter *it, iv_tbl *t)
 static void
 iv_it_init_by_hash_code(iv_tbl_iter *it, iv_tbl *t, uint32_t hash_code)
 {
-  it->mask = *iv_capa_1_ptr(t);
+  it->mask = t->capa_1;
   it->syms = iv_syms(t);
   it->vals = iv_vals(t);
   it->idx = iv_it_idx_for(it, hash_code);
@@ -169,31 +168,31 @@ iv_byte_size_for(uint32_t capa)
 static uint16_t
 iv_size(const iv_tbl *t)
 {
-  return *iv_size_ptr(t);
+  return t->size;
 }
 
 static void
 iv_set_size(iv_tbl *t, uint16_t size)
 {
-  *iv_size_ptr(t) = size;
+  t->size = size;
 }
 
 static uint32_t
 iv_capa(const iv_tbl *t)
 {
-  return U32(*iv_capa_1_ptr(t)) + 1;
+  return U32(t->capa_1) + 1;
 }
 
 static void
 iv_set_capa(iv_tbl *t, uint32_t capa)
 {
-  *iv_capa_1_ptr(t) = U16(capa - 1);
+  t->capa_1 = U16(capa - 1);
 }
 
 static iv_tbl*
 iv_new(mrb_state *mrb, uint32_t capa)
 {
-  iv_tbl *t = (iv_tbl*)mrb_malloc(mrb, iv_byte_size_for(capa)) + iv_offset_for(capa);
+  iv_tbl *t = (iv_tbl*)((char *)mrb_malloc(mrb, iv_byte_size_for(capa)) + iv_offset_for(capa));
   iv_set_size(t, 0);
   iv_set_capa(t, capa);
   memset(iv_syms(t), 0xff, sizeof(mrb_sym) * capa);
@@ -320,7 +319,7 @@ iv_copy(mrb_state *mrb, const iv_tbl *t)
   size_t byte_size = iv_byte_size_for(capa);
   void *p = mrb_malloc(mrb, byte_size);
   memcpy(p, iv_vals(t), byte_size);
-  return (iv_tbl*)p + iv_offset_for(capa);
+  return (iv_tbl*)((char *)p + iv_offset_for(capa));
 }
 
 static int
