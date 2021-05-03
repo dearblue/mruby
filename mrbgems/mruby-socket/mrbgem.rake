@@ -15,4 +15,11 @@ MRuby::Gem::Specification.new('mruby-socket') do |spec|
   spec.add_dependency('mruby-io', :core => 'mruby-io')
   spec.add_dependency('mruby-pack', :core => 'mruby-pack')
   # spec.add_dependency('mruby-mtest')
+
+  spec.terms << {
+    "README.md" => proc {
+      pattern = /Copyright \(c\) 2013 Internet Initiative Japan Inc\..*?DEALINGS IN THE SOFTWARE\.\n/m
+      File.extract(File.join(spec.dir, "README.md"), pattern).gsub(/^\s*\*+ */, "")
+    }
+  }
 end

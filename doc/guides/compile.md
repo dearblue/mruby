@@ -338,6 +338,36 @@ When debugging mode is enabled
   * Because `-g` flag would be added to `mrbc` runner.
     * You can have better backtrace of mruby scripts with this.
 
+### Additional license terms
+
+`conf.terms` プロパティに設定されたライセンス条項は、`<build-dir>/LICENSE.yaml` ファイルの一部となって出力されます。
+この初期値は空の配列 (`[]`) です。追加したい場合、次のようにします:
+
+```ruby
+conf.terms << "path/to/ADDITIONAL-LICENSE"
+```
+
+ファイルパスとして、ビルドディレクトリを基準とした相対パスだけではなく、絶対パスで指定することも可能です。
+また、与えられるのはファイルパスだけではなく、名前と条項内容を組み合わせたハッシュを与えることが出来ます。
+
+`conf.terms` に直接指定することが出来るオブジェクトは、`nil`, パスを表す string, array, hash それに加えて、`#to_path` と `#read` メソッドの両方を持つオブジェクト (file や pathname を想定) です。
+
+array の中には `conf.terms` に直接与えられるものが追加できます。
+
+hash の中には、パス (名前) を表すオブジェクトをキーとして、内容とするオブジェクトを組にして指定できます
+パスを表すオブジェクトは、文字列か `#to_path` メソッドを持つオブジェクト (file や pathname を想定) です。
+内容とするオブジェクトは、条項本体としての文字列、文字列を返す proc、あるいは `#read` メソッドを持つオブジェクト (file、pathname または stringio を想定) です。
+
+次に示す例は全て正しい指定方法です:
+
+```ruby
+conf.terms = "path1/to/LICENSE"
+conf.terms << [ [ "/path2/to/LICENSE", [ File.open(/path3/to/COPYING) ] ], Pathname.new("path4/to/COPYRIGHT") ]
+conf.terms << { "name5" => "License Terms #5" }
+conf.terms = { "name6" => File.open("/path6/to/COPYRIGHT"), "name7" => Pathname.new("path7") }
+conf.terms << [ { "name8" => proc { File.read("/path8/to/LICENSE") } } ]
+```
+
 ## Cross-Compilation
 
 mruby can also be cross-compiled from one platform to another. To achieve
@@ -385,6 +415,8 @@ root directory. The structure of this directory will look like this:
     +- host
         |
         +- LEGAL        <- License description
+        |
+        +- LICENSE.yaml <- Collected license terms (probably NOT complete)
         |
         +- bin          <- Binaries (mirb, mrbc and mruby)
         |

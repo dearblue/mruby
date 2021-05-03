@@ -1,4 +1,5 @@
 require 'forwardable'
+require 'tmpdir'
 
 module MRuby
   class Command
@@ -33,8 +34,8 @@ module MRuby
     end
 
     private
-    def _run(options, params={})
-      sh "#{build.filename(command)} #{options % params}"
+    def _run(options, params, **opts, &block)
+      sh "#{build.filename(command)} #{options % params}", **opts, &block
     end
   end
 
@@ -96,7 +97,7 @@ module MRuby
         flags << " -DMRB_PRESYM_SCANNING"
       end
       _pp label, infile.relative_path, outfile.relative_path
-      _run opts, flags: flags, infile: filename(infile), outfile: filename(outfile)
+      _run opts, { flags: flags, infile: filename(infile), outfile: filename(outfile) }
     end
 
     def define_rules(build_dir, source_dir='', out_ext=build.exts.object)
@@ -129,6 +130,18 @@ module MRuby
           }
         ] do |t|
           run t.name, t.prerequisites.first
+        end
+      end
+    end
+
+    def _try_compile(code)
+      Dir.mktmpdir("mruby") do |dir|
+        obj = File.join(dir, "obj#{build.exts.object}")
+        src = File.join(dir, "input.c")
+        File.write(src, code)
+        params = { flags: all_flags, infile: filename(src), outfile: filename(obj) }
+        _run compile_options, params, out: File::NULL, err: File::NULL do |ok, *|
+          ok
         end
       end
     end
