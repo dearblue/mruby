@@ -1767,6 +1767,36 @@ mrb_mc_clear_by_class(mrb_state *mrb, struct RClass *c)
 }
 #endif
 
+static inline mrb_bool
+method_search(mrb_state *mrb, struct RClass *c, mrb_sym mid, mrb_method_t *m)
+{
+  mt_tbl *h = c->mt;
+
+  if (h) {
+    union mt_ptr ptr;
+    mrb_sym ret = mt_get(mrb, h, mid, &ptr);
+    if (ret) {
+      if (ptr.proc == NULL) {
+        MRB_METHOD_FROM_PROC(*m, NULL);
+      }
+      else {
+        if (ret & MT_FUNC_P) {
+          MRB_METHOD_FROM_FUNC(*m, ptr.func);
+        }
+        else {
+          MRB_METHOD_FROM_PROC(*m, ptr.proc);
+        }
+        if (ret & MT_NOARG_P) {
+          MRB_METHOD_NOARG_SET(*m);
+        }
+      }
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
 MRB_API mrb_method_t
 mrb_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid)
 {
@@ -1784,31 +1814,16 @@ mrb_method_search_vm(mrb_state *mrb, struct RClass **cp, mrb_sym mid)
 #endif
 
   while (c) {
-    mt_tbl *h = c->mt;
-
-    if (h) {
-      union mt_ptr ptr;
-      mrb_sym ret = mt_get(mrb, h, mid, &ptr);
-      if (ret) {
-        if (ptr.proc == 0) break;
-        *cp = c;
-        if (ret & MT_FUNC_P) {
-          MRB_METHOD_FROM_FUNC(m, ptr.func);
-        }
-        else {
-          MRB_METHOD_FROM_PROC(m, ptr.proc);
-        }
-        if (ret & MT_NOARG_P) {
-          MRB_METHOD_NOARG_SET(m);
-        }
+    if (method_search(mrb, c, mid, &m)) {
+      if (MRB_METHOD_UNDEF_P(m)) break;
+      *cp = c;
 #ifndef MRB_NO_METHOD_CACHE
-        mc->c = oc;
-        mc->c0 = c;
-        mc->mid = mid;
-        mc->m = m;
+      mc->c = oc;
+      mc->c0 = c;
+      mc->mid = mid;
+      mc->m = m;
 #endif
-        return m;
-      }
+      return m;
     }
     c = c->super;
   }
