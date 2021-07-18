@@ -46,6 +46,73 @@ mrb_binding_extract_env(mrb_state *mrb, mrb_value binding)
 }
 
 static void
+binding_type_ensure(mrb_state *mrb, mrb_value obj)
+{
+  if (!mrb_obj_is_kind_of(mrb, obj, mrb_class_get_id(mrb, MRB_SYM(Binding)))) {
+    mrb_raise(mrb, E_TYPE_ERROR, "not a binding");
+  }
+}
+
+static mrb_irep*
+lvspace_irep_new(mrb_state *mrb, int nlocals)
+{
+  static const mrb_code iseq_dummy[] = { OP_RETURN, 0 };
+
+  mrb_irep *irep = mrb_add_irep(mrb);
+  irep->flags = MRB_ISEQ_NO_FREE;
+  irep->iseq = iseq_dummy;
+  irep->ilen = sizeof(iseq_dummy) / sizeof(iseq_dummy[0]);
+  irep->lv = (mrb_sym*)mrb_calloc(mrb, nlocals, sizeof(mrb_sym)); /* initial allocation for dummy */
+  irep->nlocals = nlocals;
+  irep->nregs = nlocals;
+  return irep;
+}
+
+static mrb_value
+binding_initialize_copy(mrb_state *mrb, mrb_value binding)
+{
+  struct {
+    mrb_value obj, proc, env;
+    struct RProc *procp;
+    struct REnv *envp;
+  } src;
+  mrb_get_args(mrb, "o", &src.obj);
+  binding_type_ensure(mrb, src.obj);
+  mrb_check_frozen(mrb, mrb_obj_ptr(binding));
+
+  src.proc = mrb_iv_get(mrb, binding, MRB_SYM(proc));
+  mrb_assert(mrb_proc_p(src.proc));
+  src.procp = mrb_proc_ptr(src.proc);
+  mrb_assert(!MRB_PROC_CFUNC_P(src.procp));
+  src.env = mrb_iv_get(mrb, binding, MRB_SYM(env));
+  mrb_assert(mrb_env_p(src.env));
+  src.envp = (struct REnv*)mrb_obj_ptr(src.env);
+
+  struct RProc *lvspace = MRB_OBJ_ALLOC(mrb, MRB_TT_PROC, mrb->proc_class);
+  mrb_irep *irep = lvspace_irep_new(mrb, (src.procp->body.irep->nlocals > 0 ? src.procp->body.irep->nlocals : 1));
+  lvspace->body.irep = irep;
+  lvspace->upper = src.procp->upper;
+  memcpy((mrb_sym*)irep->lv, src.procp->body.irep->lv, irep->nlocals * sizeof(mrb_sym));
+  if (src.procp->e.env) {
+    lvspace->e.env = src.procp->e.env;
+    lvspace->flags |= MRB_PROC_ENVSET;
+  }
+
+  struct REnv *env = MRB_OBJ_ALLOC(mrb, MRB_TT_ENV, NULL);
+  mrb_value *stacks = (mrb_value*)mrb_calloc(mrb, MRB_ENV_LEN(src.envp) + 1, sizeof(mrb_value));
+  env->cxt = src.envp->cxt;
+  env->mid = src.envp->mid;
+  env->stack = stacks;
+  memcpy(env->stack, src.envp->stack, (MRB_ENV_LEN(src.envp) + 1) * sizeof(mrb_value));
+  MRB_ENV_SET_LEN(env, MRB_ENV_LEN(src.envp));
+
+  mrb_iv_set(mrb, binding, MRB_SYM(proc), mrb_obj_value(lvspace));
+  mrb_iv_set(mrb, binding, MRB_SYM(env), mrb_obj_value(env));
+
+  return binding;
+}
+
+static void
 binding_local_variable_name_check(mrb_state *mrb, mrb_sym id)
 {
   if (id == 0) {
@@ -229,17 +296,8 @@ mrb_binding_wrap_lvspace(mrb_state *mrb, const struct RProc *proc, struct REnv *
    * binding.eval and binding.local_variable_set.
    */
 
-  static const mrb_code iseq_dummy[] = { OP_RETURN, 0 };
-
   struct RProc *lvspace = MRB_OBJ_ALLOC(mrb, MRB_TT_PROC, mrb->proc_class);
-  mrb_irep *irep = mrb_add_irep(mrb);
-  irep->flags = MRB_ISEQ_NO_FREE;
-  irep->iseq = iseq_dummy;
-  irep->ilen = sizeof(iseq_dummy) / sizeof(iseq_dummy[0]);
-  irep->lv = (mrb_sym*)mrb_calloc(mrb, 1, sizeof(mrb_sym)); /* initial allocation for dummy */
-  irep->nlocals = 1;
-  irep->nregs = 1;
-  lvspace->body.irep = irep;
+  lvspace->body.irep = lvspace_irep_new(mrb, 1);
   lvspace->upper = proc;
   if (*envp) {
     lvspace->e.env = *envp;
@@ -291,6 +349,7 @@ mrb_mruby_binding_core_gem_init(mrb_state *mrb)
 
   mrb_define_method(mrb, mrb->kernel_module, "binding", mrb_f_binding, MRB_ARGS_NONE());
 
+  mrb_define_method(mrb, binding, "initialize_copy", binding_initialize_copy, MRB_ARGS_REQ(1));
   mrb_define_method(mrb, binding, "local_variable_defined?", binding_local_variable_defined_p, MRB_ARGS_REQ(1));
   mrb_define_method(mrb, binding, "local_variable_get", binding_local_variable_get, MRB_ARGS_REQ(1));
   mrb_define_method(mrb, binding, "local_variable_set", binding_local_variable_set, MRB_ARGS_REQ(2));
