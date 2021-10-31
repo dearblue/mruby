@@ -11,6 +11,8 @@
 #include <mruby/dump.h>
 #include <mruby/class.h>
 #include <mruby/presym.h>
+#include <mruby/opcode.h>
+#include <mruby/proc.h>
 
 #ifndef MRB_NO_PRESYM
 
@@ -705,6 +707,53 @@ sym_cmp(mrb_state *mrb, mrb_value s1)
   }
 }
 
+//  def to_proc
+//    ->(obj,*args,&block) do
+//      obj.__send__(self, *args, &block)
+//    end
+//  end
+static const mrb_code to_proc_caller_iseq[] = {
+  OP_ENTER,     0x04, 0x10, 0x01,       // ENTER         1:0:1:0:0:0:1 (0x41001)
+  OP_MOVE,      0x04, 0x01,             // MOVE          R4      R1              ; R1:obj
+  OP_LOADSELF,  0x05,                   // LOADSELF      R5
+  OP_ARRAY,     0x05, 0x01,             // ARRAY         R5      R5      1
+  OP_MOVE,      0x06, 0x02,             // MOVE          R6      R2              ; R2:args
+  OP_ARYCAT,    0x05,                   // ARYCAT        R5      R6
+  OP_MOVE,      0x06, 0x03,             // MOVE          R6      R3              ; R3:block
+  OP_SENDB,     0x04, 0x00, 0x0f,       // SENDB         R4      :__send__       n=* (0x0f)
+  OP_RETURN,    0x04,                   // RETURN        R4
+};
+
+MRB_PRESYM_DEFINE_VAR_AND_INITER(to_proc_caller_syms, 1, MRB_SYM(__send__))
+
+static const mrb_irep to_proc_caller_irep = {
+  4, 7, 0, MRB_IREP_STATIC, to_proc_caller_iseq,
+  NULL, to_proc_caller_syms, NULL, NULL, NULL,
+  sizeof(to_proc_caller_iseq), 0, sizeof(to_proc_caller_syms) / sizeof(to_proc_caller_syms[0]), 0, 0
+};
+
+struct REnv *mrb_env_new(mrb_state *mrb, struct mrb_context *c, mrb_callinfo *ci, int nstacks, mrb_value *stack, struct RClass *tc);
+
+static mrb_value
+sym_to_proc(mrb_state *mrb, mrb_value self)
+{
+  MRB_PRESYM_INIT_SYMBOLS(mrb, to_proc_caller_syms);
+
+  struct REnv *e = mrb_env_new(mrb, mrb->c, mrb->c->ci, 0, NULL, mrb->symbol_class);
+  MRB_ENV_SET_BIDX(e, 0);
+  e->stack = (mrb_value*)mrb_malloc(mrb, sizeof(mrb_value) * 1);
+  MRB_ENV_SET_LEN(e, 1);
+  e->stack[0] = self;
+
+  struct RArray *actrefs = mrb_vm_ci_activated_refinements(mrb->c->ci - 1);
+  struct RProc *proc = mrb_proc_new(mrb, &to_proc_caller_irep, actrefs);
+  proc->e.env = e;
+  proc->flags |= MRB_PROC_ENVSET | MRB_PROC_STRICT;
+  mrb_field_write_barrier(mrb, (struct RBasic*)proc, (struct RBasic*)e);
+
+  return mrb_obj_value(proc);
+}
+
 void
 mrb_init_symbol(mrb_state *mrb)
 {
@@ -719,4 +768,5 @@ mrb_init_symbol(mrb_state *mrb)
   mrb_define_method(mrb, sym, "to_sym",  sym_to_sym,  MRB_ARGS_NONE());          /* 15.2.11.3.4 */
   mrb_define_method(mrb, sym, "inspect", sym_inspect, MRB_ARGS_NONE());          /* 15.2.11.3.5(x) */
   mrb_define_method(mrb, sym, "<=>",     sym_cmp,     MRB_ARGS_REQ(1));
+  mrb_define_method(mrb, sym, "to_proc", sym_to_proc, MRB_ARGS_NONE());
 }

@@ -3,5 +3,5 @@ class Symbol
     ->(obj,*args,&block) do
       obj.__send__(self, *args, &block)
     end
-  end
+  end if false
 end
