@@ -334,6 +334,9 @@ codedump(mrb_state *mrb, const mrb_irep *irep)
       printf("SENDB\t\tR%d\t:%s\t", a, mrb_sym_dump(mrb, irep->syms[b]));
       print_args(c);
       break;
+    CASE(OP_FORWARD, B):
+      printf("FORWARD\t\tR%d.__send__(R%d, *R%d, **R%d, &R%d\n", a+1, a, a+2, a+3, a+4);
+      break;
     CASE(OP_CALL, Z):
       printf("CALL\n");
       break;

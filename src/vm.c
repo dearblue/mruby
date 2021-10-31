@@ -1694,6 +1694,16 @@ RETRY_TRY_BLOCK:
     }
     JUMP;
 
+    CASE(OP_FORWARD, B)
+      mrb_check_type(mrb, regs[a], MRB_TT_SYMBOL);
+      mid = mrb_symbol(regs[a]);
+      c = 0xff;
+      regs[a+0] = regs[a+1]; // recv
+      regs[a+1] = regs[a+2]; // splat
+      regs[a+2] = regs[a+3]; // keywords
+      regs[a+3] = regs[a+4]; // block
+      goto L_SENDB_SYM;
+
     CASE(OP_CALL, Z) {
       mrb_callinfo *ci = mrb->c->ci;
       mrb_value recv = ci->stack[0];
