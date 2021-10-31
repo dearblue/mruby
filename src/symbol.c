@@ -10,8 +10,10 @@
 #include <mruby/string.h>
 #include <mruby/dump.h>
 #include <mruby/class.h>
+#include <mruby/proc.h>
 #include <mruby/internal.h>
 #include <mruby/presym.h>
+#include <mruby/opcode.h>
 
 #ifndef MRB_NO_PRESYM
 
@@ -702,6 +704,41 @@ sym_cmp(mrb_state *mrb, mrb_value s1)
   }
 }
 
+//  ->(recv, *args, **kw, &block) do
+//    recv.__send__(self, *args, **kw, &block)
+//  end
+static const mrb_code to_proc_caller_iseq[] = {
+  OP_ENTER,     0x04, 0x10, 0x03,       // OP_ENTER     1:0:1:0:0:1:1 (0x41003)
+  OP_FORWARD,   0x00,                   // OP_FORWARD   R1.__send__(R0, *R2, **R3, &R4)
+  OP_RETURN,    0x00,                   // OP_RETURN    R0
+};
+
+static const mrb_irep to_proc_caller_irep = {
+  5, 6, 0, MRB_IREP_STATIC, to_proc_caller_iseq,
+  NULL, NULL, NULL, NULL, NULL,
+  sizeof(to_proc_caller_iseq), 0, 0, 0, 0
+};
+
+struct REnv *mrb_env_new(mrb_state *mrb, struct mrb_context *c, mrb_callinfo *ci, int nstacks, mrb_value *stack, struct RClass *tc);
+
+static mrb_value
+sym_to_proc(mrb_state *mrb, mrb_value self)
+{
+  struct REnv *e = mrb_env_new(mrb, mrb->c, mrb->c->ci, 0, NULL, mrb->symbol_class);
+  MRB_ENV_SET_BIDX(e, 0);
+  e->stack = (mrb_value*)mrb_malloc(mrb, sizeof(mrb_value) * 1);
+  MRB_ENV_SET_LEN(e, 1);
+  e->stack[0] = self;
+
+  struct RArray *actrefs = mrb_vm_ci_activated_refinements(mrb->c->ci - 1);
+  struct RProc *proc = mrb_proc_new(mrb, &to_proc_caller_irep, actrefs);
+  proc->e.env = e;
+  proc->flags |= MRB_PROC_ENVSET | MRB_PROC_STRICT;
+  mrb_field_write_barrier(mrb, (struct RBasic*)proc, (struct RBasic*)e);
+
+  return mrb_obj_value(proc);
+}
+
 void
 mrb_init_symbol(mrb_state *mrb)
 {
@@ -716,4 +753,5 @@ mrb_init_symbol(mrb_state *mrb)
   mrb_define_method(mrb, sym, "to_sym",  sym_to_sym,  MRB_ARGS_NONE());          /* 15.2.11.3.4 */
   mrb_define_method(mrb, sym, "inspect", sym_inspect, MRB_ARGS_NONE());          /* 15.2.11.3.5(x) */
   mrb_define_method(mrb, sym, "<=>",     sym_cmp,     MRB_ARGS_REQ(1));
+  mrb_define_method(mrb, sym, "to_proc", sym_to_proc, MRB_ARGS_NONE());
 }
