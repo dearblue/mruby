@@ -3247,7 +3247,12 @@ codegen(codegen_scope *s, node *tree, int val)
       n = n->cdr;
       while (n) {
         codegen(s, n->car, VAL);
-        pop(); pop();
+        pop();
+        if (nint(n->car->car) != NODE_STR) {
+          push_n(2); pop_n(2); // space for receiver and a block
+          genop_1(s, OP_TOSTRING, cursp());
+        }
+        pop();
         genop_1(s, OP_STRCAT, cursp());
         push();
         n = n->cdr;
@@ -3289,7 +3294,10 @@ codegen(codegen_scope *s, node *tree, int val)
           mrb_assert(!n->cdr); /* must be the end */
         }
         codegen(s, n->car, VAL);
-        pop(); pop();
+        pop();
+        push_n(2); pop_n(2); // space for receiver and a block
+        genop_1(s, OP_TOSTRING, cursp());
+        pop();
         genop_1(s, OP_STRCAT, cursp());
         push();
         n = n->cdr;
@@ -3380,7 +3388,10 @@ codegen(codegen_scope *s, node *tree, int val)
       n = n->cdr;
       while (n) {
         codegen(s, n->car, VAL);
-        pop(); pop();
+        pop();
+        push_n(2); pop_n(2); // space for receiver and a block
+        genop_1(s, OP_TOSTRING, cursp());
+        pop();
         genop_1(s, OP_STRCAT, cursp());
         push();
         n = n->cdr;

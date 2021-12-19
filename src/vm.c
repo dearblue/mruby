@@ -2783,6 +2783,16 @@ RETRY_TRY_BLOCK:
       NEXT;
     }
 
+    CASE(OP_TOSTRING, B) {
+      if (!mrb_string_p(regs[a])) {
+        mid = MRB_SYM(to_s);
+        c = 0;
+        regs[a + 1] = mrb_nil_value(); /* clear block argument */
+        goto L_SENDB_SYM;
+      }
+      NEXT;
+    }
+
     CASE(OP_STRCAT, B) {
       mrb_str_concat(mrb, regs[a], regs[a+1]);
       NEXT;
