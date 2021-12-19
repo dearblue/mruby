@@ -1,3 +1,32 @@
+assert "refine は直接与えられたブロックのみを受け付ける" do
+  module Sandbox
+    assert_nothing_raised do
+      refine Object do
+      end
+    end
+
+    blk = proc {}
+    assert_raise(ArgumentError) do
+      refine Object, &blk
+    end
+
+    blk = lambda {}
+    assert_raise(ArgumentError) do
+      refine Object, &blk
+    end
+
+    blk = method(:object_id)
+    assert_raise(ArgumentError) do
+      refine Object, &blk
+    end
+
+    blk = :object_id
+    assert_raise(ArgumentError) do
+      refine Object, &blk
+    end
+  end
+end
+
 assert "リファインメントは using してから有効になる" do
   module Sandbox
     assert_nothing_raised do
@@ -35,14 +64,6 @@ assert "メソッドの中では using 出来ない" do
 
   assert_raise_with_message RuntimeError, "Module#using is not permitted in methods" do
     Kernel.sandbox_a
-  end
-
-  def sandbox_b
-    using Sandbox::Extensions
-  end
-
-  assert_raise_with_message RuntimeError, "main.using is permitted only at toplevel" do
-    sandbox_b
   end
 end
 

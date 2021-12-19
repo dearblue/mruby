@@ -1,19 +1,11 @@
 assert "refinements with eval" do
-  module Sandbox1
+  module Sandbox
     module Extensions
       refine Object do
         def refine1
           12345
         end
       end
-    end
-
-    assert_raise NoMethodError do
-      eval "refine1()"
-    end
-
-    assert_nothing_raised do
-      eval "using Extensions"
     end
 
     assert_raise NoMethodError do

@@ -504,6 +504,10 @@ codedump(mrb_state *mrb, const mrb_irep *irep)
       printf("STRING\tR%d\tL(%d)\t; %s", a, b, irep->pool[b].u.str);
       print_lv_a(mrb, irep, a);
       break;
+    CASE(OP_TOSTRING, B):
+      printf("TOSTRING\tR%d", a);
+      print_lv_a(mrb, irep, a);
+      break;
     CASE(OP_STRCAT, B):
       printf("STRCAT\tR%d\tR%d\t", a, a+1);
       print_lv_a(mrb, irep, a);

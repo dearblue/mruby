@@ -244,6 +244,11 @@ mrb_mod_refine_m(mrb_state *mrb, mrb_value mod)
   mrb_value blk;
   mrb_get_args(mrb, "c&!", &target, &blk);
 
+  if ((mrb_obj_ptr(blk)->flags & (MRB_PROC_STRICT | MRB_PROC_ORPHAN))) {
+    // either it is a indirectly given block; e.g. `refine Object, &->{}`
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "can't pass a Proc as a block to Module#refine");
+  }
+
   struct RClass *refine = mrb_define_refinement(mrb, mrb_class_ptr(mod), target);
 
   // `#module_eval` of mruby-class-ext cannot be used.
