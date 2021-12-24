@@ -16,6 +16,10 @@ MRuby::Build.new do |conf|
   # include the GEM box
   conf.gembox 'default'
 
+  gem core: "mruby-binding"
+  gem core: "mruby-proc-binding"
+  gem core: "mruby-refinement"
+
   # C compiler settings
   # conf.cc do |cc|
   #   cc.command = ENV['CC'] || 'gcc'
