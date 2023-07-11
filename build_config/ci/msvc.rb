@@ -17,4 +17,5 @@ MRuby::Build.new do |conf|
   setup_option(conf)
   conf.enable_bintest
   conf.enable_test
+  conf.enable_debug
 end
