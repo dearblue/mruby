@@ -378,6 +378,7 @@ prepare_singleton_class(mrb_state *mrb, struct RBasic *o)
   mrb_assert(o->c);
   if (o->c->tt == MRB_TT_SCLASS) return;
   sc = MRB_OBJ_ALLOC(mrb, MRB_TT_SCLASS, mrb->class_class);
+  ////MRB_SET_INSTANCE_TT(sc, MRB_TT_UNDEF);
   sc->flags |= MRB_FL_CLASS_IS_INHERITED;
   sc->mt = NULL;
   sc->iv = NULL;
@@ -1408,6 +1409,7 @@ static struct RClass*
 include_class_new(mrb_state *mrb, struct RClass *m, struct RClass *super)
 {
   struct RClass *ic = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, mrb->class_class);
+  MRB_SET_INSTANCE_TT(ic, MRB_TT_UNDEF);
   if (m->tt == MRB_TT_ICLASS) {
     m = m->c;
   }
@@ -1532,6 +1534,7 @@ mrb_prepend_module(mrb_state *mrb, struct RClass *c, struct RClass *m)
   mrb_check_frozen(mrb, c);
   if (!(c->flags & MRB_FL_CLASS_IS_PREPENDED)) {
     origin = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, c);
+    MRB_SET_INSTANCE_TT(origin, MRB_TT_UNDEF);
     origin->flags |= MRB_FL_CLASS_IS_ORIGIN | MRB_FL_CLASS_IS_INHERITED;
     origin->super = c->super;
     c->super = origin;
@@ -1956,6 +1959,16 @@ mrb_instance_alloc(mrb_state *mrb, mrb_value cv)
     mrb_raisef(mrb, E_TYPE_ERROR, "can't create instance of %v", cv);
   }
   o = (struct RObject*)mrb_obj_alloc(mrb, ttype, c);
+  switch (ttype) {
+  case MRB_TT_CLASS:
+  case MRB_TT_MODULE:
+  case MRB_TT_SCLASS:
+    MRB_SET_INSTANCE_TT((struct RClass*)o, MRB_TT_UNDEF);
+    break;
+  default:
+    break;
+  }
+
   return mrb_obj_value(o);
 }
 
@@ -2205,9 +2218,7 @@ mrb_class_new(mrb_state *mrb, struct RClass *super)
     mrb_check_inheritable(mrb, super);
   }
   c = boot_defclass(mrb, super);
-  if (super) {
-    MRB_SET_INSTANCE_TT(c, MRB_INSTANCE_TT(super));
-  }
+  MRB_SET_INSTANCE_TT(c, super ? MRB_INSTANCE_TT(super) : MRB_TT_OBJECT);
   make_metaclass(mrb, c);
 
   return c;
@@ -2220,6 +2231,7 @@ MRB_API struct RClass*
 mrb_module_new(mrb_state *mrb)
 {
   struct RClass *m = MRB_OBJ_ALLOC(mrb, MRB_TT_MODULE, mrb->module_class);
+  MRB_SET_INSTANCE_TT(m, MRB_TT_UNDEF);
   boot_initmod(mrb, m);
   return m;
 }
@@ -2684,6 +2696,16 @@ mrb_singleton_class_clone(mrb_state *mrb, mrb_value obj)
   else {
     /* copy singleton(unnamed) class */
     struct RClass *clone = (struct RClass*)mrb_obj_alloc(mrb, klass->tt, mrb->class_class);
+    //switch (mrb_type(self)) {
+    //case MRB_TT_CLASS:
+    //case MRB_TT_MODULE:
+    //case MRB_TT_SCLASS:
+    //  MRB_SET_INSTANCE_TT((struct RClass*)p, MRB_TT_UNDEF);
+    //  break;
+    //default:
+    //  break;
+    //}
+    ////MRB_SET_INSTANCE_TT(clone, MRB_TT_UNDEF);
 
     switch (mrb_type(obj)) {
     case MRB_TT_CLASS:
@@ -2842,6 +2864,15 @@ mrb_obj_clone(mrb_state *mrb, mrb_value self)
     mrb_raise(mrb, E_TYPE_ERROR, "can't clone singleton class");
   }
   p = (struct RObject*)mrb_obj_alloc(mrb, mrb_type(self), mrb_obj_class(mrb, self));
+  ////switch (mrb_type(self)) {
+  ////case MRB_TT_CLASS:
+  ////case MRB_TT_MODULE:
+  ////case MRB_TT_SCLASS:
+  ////  MRB_SET_INSTANCE_TT((struct RClass*)p, MRB_TT_UNDEF);
+  ////  break;
+  ////default:
+  ////  break;
+  ////}
   p->c = mrb_singleton_class_clone(mrb, self);
   mrb_field_write_barrier(mrb, (struct RBasic*)p, (struct RBasic*)p->c);
   clone = mrb_obj_value(p);
@@ -2883,6 +2914,15 @@ mrb_obj_dup(mrb_state *mrb, mrb_value obj)
     mrb_raise(mrb, E_TYPE_ERROR, "can't dup singleton class");
   }
   p = mrb_obj_alloc(mrb, mrb_type(obj), mrb_obj_class(mrb, obj));
+  ////switch (mrb_type(obj)) {
+  ////case MRB_TT_CLASS:
+  ////case MRB_TT_MODULE:
+  ////case MRB_TT_SCLASS:
+  ////  MRB_SET_INSTANCE_TT((struct RClass*)p, MRB_TT_UNDEF);
+  ////  break;
+  ////default:
+  ////  break;
+  ////}
   dup = mrb_obj_value(p);
   init_copy(mrb, dup, obj);
 
@@ -2999,6 +3039,12 @@ mrb_init_class(mrb_state *mrb)
   obj = boot_defclass(mrb, bob); mrb->object_class = obj;
   mod = boot_defclass(mrb, obj); mrb->module_class = mod;/* obj -> mod */
   cls = boot_defclass(mrb, mod); mrb->class_class = cls; /* obj -> cls */
+
+  MRB_SET_INSTANCE_TT(bob, MRB_TT_OBJECT);
+  MRB_SET_INSTANCE_TT(obj, MRB_TT_OBJECT);
+  MRB_SET_INSTANCE_TT(mod, MRB_TT_MODULE);
+  MRB_SET_INSTANCE_TT(cls, MRB_TT_CLASS);
+
   /* fix-up loose ends */
   bob->c = obj->c = mod->c = cls->c = cls;
   make_metaclass(mrb, bob);
@@ -3021,7 +3067,6 @@ mrb_init_class(mrb_state *mrb)
   mrb->proc_class = mrb_define_class(mrb, "Proc", mrb->object_class);  /* 15.2.17 */
   MRB_SET_INSTANCE_TT(mrb->proc_class, MRB_TT_PROC);
 
-  MRB_SET_INSTANCE_TT(cls, MRB_TT_CLASS);
   mrb_define_method_id(mrb, bob, MRB_SYM(initialize),              mrb_do_nothing,           MRB_ARGS_NONE());
   mrb_define_method_id(mrb, bob, MRB_OPSYM(not),                   mrb_bob_not,              MRB_ARGS_NONE());
   mrb_define_method_id(mrb, bob, MRB_OPSYM(eq),                    mrb_obj_equal_m,          MRB_ARGS_REQ(1)); /* 15.3.1.3.1  */
@@ -3040,7 +3085,6 @@ mrb_init_class(mrb_state *mrb)
 
   init_class_new(mrb, cls);
 
-  MRB_SET_INSTANCE_TT(mod, MRB_TT_MODULE);
   mrb_define_method_id(mrb, mod, MRB_SYM(extend_object),           mrb_mod_extend_object,    MRB_ARGS_REQ(1)); /* 15.2.2.4.25 */
   mrb_define_method_id(mrb, mod, MRB_SYM(extended),                mrb_do_nothing,           MRB_ARGS_REQ(1)); /* 15.2.2.4.26 */
   mrb_define_method_id(mrb, mod, MRB_SYM(prepended),               mrb_do_nothing,           MRB_ARGS_REQ(1));
