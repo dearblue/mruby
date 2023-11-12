@@ -1742,14 +1742,66 @@ RETRY_TRY_BLOCK:
     }
 
     CASE(OP_RAISEIF, B) {
-      mrb_value exc = regs[a];
-      if (mrb_break_p(exc)) {
-        mrb->exc = mrb_obj_ptr(exc);
-        goto L_BREAK;
+      mrb_value exc;
+      exc = regs[a];
+      if (mrb_nil_p(exc)) {
+        mrb->exc = NULL;
       }
-      mrb_exc_set(mrb, exc);
-      if (mrb->exc) {
-        goto L_RAISE;
+      else if (mrb_break_p(exc)) {
+        struct RBreak *brk;
+
+        mrb->exc = mrb_obj_ptr(exc);
+
+      L_BREAK:
+        brk = (struct RBreak*)mrb->exc;
+
+        switch (mrb_break_tag_get(brk)) {
+#define DISPATCH_CHECKPOINTS(n, i) case n: goto CHECKPOINT_LABEL_MAKE(n);
+          RBREAK_TAG_FOREACH(DISPATCH_CHECKPOINTS)
+#undef DISPATCH_CHECKPOINTS
+          default:
+            mrb_assert(!"wrong break tag");
+        }
+      }
+      else {
+        mrb_callinfo *ci;
+
+        mrb_exc_set(mrb, exc);
+      L_RAISE:
+        ci = mrb->c->ci;
+        while ((ch = catch_handler_find(mrb, ci, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
+          if (ci != mrb->c->cibase) {
+            ci = cipop(mrb);
+            if (ci[1].cci == CINFO_SKIP && prev_jmp) {
+              mrb->jmp = prev_jmp;
+              MRB_THROW(prev_jmp);
+            }
+          }
+          else if (mrb->c == mrb->root_c) {
+            mrb->c->ci->stack = mrb->c->stbase;
+            goto L_STOP;
+          }
+          else {
+            struct mrb_context *c = mrb->c;
+
+            c->status = MRB_FIBER_TERMINATED;
+            mrb->c = c->prev;
+            if (!mrb->c) mrb->c = mrb->root_c;
+            else c->prev = NULL;
+            goto L_RAISE;
+          }
+        }
+
+        if (FALSE) {
+        L_CATCH_TAGGED_BREAK: /* from THROW_TAGGED_BREAK() or UNWIND_ENSURE() */
+          ci = mrb->c->ci;
+        }
+        proc = ci->proc;
+        irep = proc->body.irep;
+        pool = irep->pool;
+        syms = irep->syms;
+        stack_extend(mrb, irep->nregs);
+        pc = irep->iseq + mrb_irep_catch_handler_unpack(ch->target);
       }
       NEXT;
     }
@@ -2285,41 +2337,7 @@ RETRY_TRY_BLOCK:
 
       ci = mrb->c->ci;
       if (mrb->exc) {
-      L_RAISE:
-        ci = mrb->c->ci;
-        while ((ch = catch_handler_find(mrb, ci, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
-          if (ci != mrb->c->cibase) {
-            ci = cipop(mrb);
-            if (ci[1].cci == CINFO_SKIP && prev_jmp) {
-              mrb->jmp = prev_jmp;
-              MRB_THROW(prev_jmp);
-            }
-          }
-          else if (mrb->c == mrb->root_c) {
-            mrb->c->ci->stack = mrb->c->stbase;
-            goto L_STOP;
-          }
-          else {
-            struct mrb_context *c = mrb->c;
-
-            c->status = MRB_FIBER_TERMINATED;
-            mrb->c = c->prev;
-            if (!mrb->c) mrb->c = mrb->root_c;
-            else c->prev = NULL;
-            goto L_RAISE;
-          }
-        }
-
-        if (FALSE) {
-        L_CATCH_TAGGED_BREAK: /* from THROW_TAGGED_BREAK() or UNWIND_ENSURE() */
-          ci = mrb->c->ci;
-        }
-        proc = ci->proc;
-        irep = proc->body.irep;
-        pool = irep->pool;
-        syms = irep->syms;
-        stack_extend(mrb, irep->nregs);
-        pc = irep->iseq + mrb_irep_catch_handler_unpack(ch->target);
+        goto L_RAISE;
       }
       else {
         mrb_int acc;
@@ -2346,25 +2364,6 @@ RETRY_TRY_BLOCK:
           }
           else if (!c->vmexec && c->prev->ci == c->prev->cibase) {
             RAISE_LIT(mrb, E_FIBER_ERROR, "double resume");
-          }
-        }
-
-        if (FALSE) {
-          struct RBreak *brk;
-
-        L_BREAK:
-          brk = (struct RBreak*)mrb->exc;
-          ci = &mrb->c->cibase[brk->ci_break_index];
-          proc = ci->proc;
-          v = mrb_break_value_get(brk);
-          pc = ci->pc;
-
-          switch (mrb_break_tag_get(brk)) {
-#define DISPATCH_CHECKPOINTS(n, i) case n: goto CHECKPOINT_LABEL_MAKE(n);
-            RBREAK_TAG_FOREACH(DISPATCH_CHECKPOINTS)
-#undef DISPATCH_CHECKPOINTS
-            default:
-              mrb_assert(!"wrong break tag");
           }
         }
 
