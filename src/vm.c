@@ -2418,23 +2418,20 @@ RETRY_TRY_BLOCK:
           mrb->c->status = MRB_FIBER_RUNNING;
           c->prev = NULL;
           if (c->vmexec) {
-            mrb_gc_arena_restore(mrb, ai);
             c->vmexec = FALSE;
-            mrb->jmp = prev_jmp;
-            return v;
+            goto L_VM_RETURN;
           }
           ci = mrb->c->ci;
         }
 
         if (mrb->c->vmexec && !CI_TARGET_CLASS(ci)) {
-          mrb_gc_arena_restore(mrb, ai);
           mrb->c->vmexec = FALSE;
-          mrb->jmp = prev_jmp;
-          return v;
+          goto L_VM_RETURN;
         }
         acc = ci->cci;
         ci = cipop(mrb);
         if (acc == CINFO_SKIP || acc == CINFO_DIRECT) {
+        L_VM_RETURN:
           mrb_gc_arena_restore(mrb, ai);
           mrb->jmp = prev_jmp;
           return v;
