@@ -1116,9 +1116,8 @@ break_new(mrb_state *mrb, uint32_t tag, const mrb_callinfo *return_ci, mrb_value
 #define MRB_CATCH_FILTER_ALL    (MRB_CATCH_FILTER_RESCUE | MRB_CATCH_FILTER_ENSURE)
 
 static const struct mrb_irep_catch_handler *
-catch_handler_find(mrb_state *mrb, mrb_callinfo *ci, const mrb_code *pc, uint32_t filter)
+catch_handler_find(const mrb_irep *irep, const mrb_code *pc, uint32_t filter)
 {
-  const mrb_irep *irep;
   ptrdiff_t xpc;
   size_t cnt;
   const struct mrb_irep_catch_handler *e;
@@ -1126,9 +1125,7 @@ catch_handler_find(mrb_state *mrb, mrb_callinfo *ci, const mrb_code *pc, uint32_
 /* The comparison operators use `>` and `<=` because pc already points to the next instruction */
 #define catch_cover_p(pc, beg, end) ((pc) > (ptrdiff_t)(beg) && (pc) <= (ptrdiff_t)(end))
 
-  if (ci->proc == NULL || MRB_PROC_CFUNC_P(ci->proc)) return NULL;
-  irep = ci->proc->body.irep;
-  if (irep == NULL || irep->clen < 1) return NULL;
+  mrb_assert(irep && irep->clen > 0);
   xpc = pc - irep->iseq;
   /* If it retry at the top level, pc will be 0, so check with -1 as the start position */
   mrb_assert(catch_cover_p(xpc, -1, irep->ilen));
@@ -1137,7 +1134,7 @@ catch_handler_find(mrb_state *mrb, mrb_callinfo *ci, const mrb_code *pc, uint32_
   /* Currently uses a simple linear search to avoid processing complexity. */
   cnt = irep->clen;
   e = mrb_irep_catch_handler_table(irep) + cnt - 1;
-  for (; cnt > 0; cnt --, e --) {
+  for (; cnt > 0; cnt--, e--) {
     if (((UINT32_C(1) << e->type) & filter) &&
         catch_cover_p(xpc, mrb_irep_catch_handler_unpack(e->begin), mrb_irep_catch_handler_unpack(e->end))) {
       return e;
@@ -1226,9 +1223,12 @@ prepare_tagged_break(mrb_state *mrb, uint32_t tag, const mrb_callinfo *return_ci
 
 #define UNWIND_ENSURE(mrb, ci, pc, tag, return_ci, val) \
   do { \
-    ch = catch_handler_find(mrb, ci, pc, MRB_CATCH_FILTER_ENSURE); \
-    if (ch) { \
-      THROW_TAGGED_BREAK(mrb, tag, return_ci, val); \
+    const mrb_irep *_irep_tmp = (ci)->proc->body.irep; \
+    if (_irep_tmp->clen > 0) { \
+      ch = catch_handler_find(_irep_tmp, pc, MRB_CATCH_FILTER_ENSURE); \
+      if (ch) { \
+        THROW_TAGGED_BREAK(mrb, tag, return_ci, val); \
+      } \
     } \
   } while (0)
 
@@ -1687,11 +1687,13 @@ RETRY_TRY_BLOCK:
         mrb_assert(a >= 0 && a < irep->ilen);
       }
       CHECKPOINT_MAIN(RBREAK_TAG_JUMP) {
-        ch = catch_handler_find(mrb, mrb->c->ci, pc, MRB_CATCH_FILTER_ENSURE);
-        if (ch) {
-          /* avoiding a jump from a catch handler into the same handler */
-          if (a < mrb_irep_catch_handler_unpack(ch->begin) || a >= mrb_irep_catch_handler_unpack(ch->end)) {
-            THROW_TAGGED_BREAK(mrb, RBREAK_TAG_JUMP, mrb->c->ci, mrb_fixnum_value(a));
+        if (irep->clen > 0) {
+          ch = catch_handler_find(irep, pc, MRB_CATCH_FILTER_ENSURE);
+          if (ch) {
+            /* avoiding a jump from a catch handler into the same handler */
+            if (a < mrb_irep_catch_handler_unpack(ch->begin) || a >= mrb_irep_catch_handler_unpack(ch->end)) {
+              THROW_TAGGED_BREAK(mrb, RBREAK_TAG_JUMP, mrb->c->ci, mrb_fixnum_value(a));
+            }
           }
         }
       }
@@ -1769,7 +1771,8 @@ RETRY_TRY_BLOCK:
         mrb_exc_set(mrb, exc);
       L_RAISE:
         ci = mrb->c->ci;
-        while ((ch = catch_handler_find(mrb, ci, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
+        while (!(proc = ci->proc) || MRB_PROC_CFUNC_P(ci->proc) || !(irep = proc->body.irep) || irep->clen < 1 ||
+               (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
           if (ci != mrb->c->cibase) {
             ci = cipop(mrb);
             if (ci[1].cci == CINFO_SKIP && prev_jmp) {
