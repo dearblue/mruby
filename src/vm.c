@@ -2268,20 +2268,13 @@ RETRY_TRY_BLOCK:
         goto L_RAISE;
       }
 
+      struct REnv *e;
+
       if (MRB_PROC_STRICT_P(proc)) goto NORMAL_RETURN;
-      if (MRB_PROC_ORPHAN_P(proc)) {
+      if (MRB_PROC_ORPHAN_P(proc) ||
+          !(e = MRB_PROC_ENV(proc)) || !MRB_ENV_ONSTACK_P(e) || e->cxt != mrb->c) {
       L_BREAK_ERROR:
         RAISE_LIT(mrb, E_LOCALJUMP_ERROR, "break from proc-closure");
-      }
-      if (!MRB_PROC_ENV_P(proc) || !MRB_ENV_ONSTACK_P(MRB_PROC_ENV(proc))) {
-        goto L_BREAK_ERROR;
-      }
-      else {
-        struct REnv *e = MRB_PROC_ENV(proc);
-
-        if (e->cxt != mrb->c) {
-          goto L_BREAK_ERROR;
-        }
       }
       /* break from fiber block */
       mrb_callinfo *ci = mrb->c->ci;
@@ -2318,13 +2311,10 @@ RETRY_TRY_BLOCK:
       cibase = mrb->c->cibase;
       dst = top_proc(mrb, proc);
 
-      if (MRB_PROC_ENV_P(dst)) {
-        struct REnv *e = MRB_PROC_ENV(dst);
-
-        if (!MRB_ENV_ONSTACK_P(e) || (e->cxt && e->cxt != mrb->c)) {
-          localjump_error(mrb, LOCALJUMP_ERROR_RETURN);
-          goto L_RAISE;
-        }
+      struct REnv *e = MRB_PROC_ENV(dst);
+      if (e && (!MRB_ENV_ONSTACK_P(e) || (e->cxt && e->cxt != mrb->c))) {
+        localjump_error(mrb, LOCALJUMP_ERROR_RETURN);
+        goto L_RAISE;
       }
       /* check jump destination */
       while (cibase <= ci && ci->proc != dst) {
