@@ -1396,7 +1396,6 @@ RETRY_TRY_BLOCK:
 
   if (exc_catched) {
     exc_catched = FALSE;
-    mrb_gc_arena_restore(mrb, ai);
     if (mrb->exc && mrb->exc->tt == MRB_TT_BREAK)
       goto L_BREAK;
     goto L_RAISE;
@@ -1771,8 +1770,11 @@ RETRY_TRY_BLOCK:
         mrb_exc_set(mrb, exc);
       L_RAISE:
         ci = mrb->c->ci;
-        while (!(proc = ci->proc) || MRB_PROC_CFUNC_P(ci->proc) || !(irep = proc->body.irep) || irep->clen < 1 ||
-               (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
+        for (;;) {
+          irep = ci->proc->body.irep;
+          if (irep->clen > 0 && (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ALL))) {
+            break;
+          }
           if (ci != mrb->c->cibase) {
             ci = cipop(mrb);
             if (ci[1].cci == CINFO_SKIP && prev_jmp) {
@@ -1912,7 +1914,7 @@ RETRY_TRY_BLOCK:
 
       /* cfunc epilogue */
       mrb_gc_arena_shrink(mrb, ai);
-      if (mrb->exc) goto L_RAISE;
+      if (mrb->exc) MRB_THROW(mrb->jmp);
       ci = mrb->c->ci;
       if (!ci->u.target_class) { /* return from context modifying method (resume/yield) */
         if (ci->cci == CINFO_RESUMED) {
@@ -1955,7 +1957,7 @@ RETRY_TRY_BLOCK:
       if (MRB_PROC_CFUNC_P(p)) {
         recv = MRB_PROC_CFUNC(p)(mrb, recv);
         mrb_gc_arena_shrink(mrb, ai);
-        if (mrb->exc) goto L_RAISE;
+        if (mrb->exc) MRB_THROW(mrb->jmp);
         /* pop stackpos */
         ci = cipop(mrb);
         pc = ci->pc;
@@ -2264,10 +2266,6 @@ RETRY_TRY_BLOCK:
     }
 
     CASE(OP_BREAK, B) {
-      if (mrb->exc) {
-        goto L_RAISE;
-      }
-
       struct REnv *e;
 
       if (MRB_PROC_STRICT_P(proc)) goto NORMAL_RETURN;
@@ -2296,10 +2294,6 @@ RETRY_TRY_BLOCK:
       goto L_UNWINDING;
     }
     CASE(OP_RETURN_BLK, B) {
-      if (mrb->exc) {
-        goto L_RAISE;
-      }
-
       mrb_callinfo *ci = mrb->c->ci;
 
       if (ci->cci != CINFO_NONE || !MRB_PROC_ENV_P(proc) || MRB_PROC_STRICT_P(proc)) {
@@ -2329,110 +2323,103 @@ RETRY_TRY_BLOCK:
     }
     CASE(OP_RETURN, B) {
       mrb_callinfo *ci;
+      mrb_int acc;
+      mrb_value v;
 
+    NORMAL_RETURN:
       ci = mrb->c->ci;
-      if (mrb->exc) {
-        goto L_RAISE;
-      }
-      else {
-        mrb_int acc;
-        mrb_value v;
+      v = regs[a];
+      mrb_gc_protect(mrb, v);
 
-      NORMAL_RETURN:
-        ci = mrb->c->ci;
-        v = regs[a];
-        mrb_gc_protect(mrb, v);
+      if (ci == mrb->c->cibase) {
+        struct mrb_context *c;
+        c = mrb->c;
 
-        if (ci == mrb->c->cibase) {
-          struct mrb_context *c;
-          c = mrb->c;
-
-          if (!c->prev) {
-            if (c != mrb->root_c) {
-              /* fiber termination should transfer to root */
-              c->prev = mrb->root_c;
-            }
-            else { /* toplevel return */
-              regs[irep->nlocals] = v;
-              goto CHECKPOINT_LABEL_MAKE(RBREAK_TAG_STOP);
-            }
+        if (!c->prev) {
+          if (c != mrb->root_c) {
+            /* fiber termination should transfer to root */
+            c->prev = mrb->root_c;
           }
-          else if (!c->vmexec && c->prev->ci == c->prev->cibase) {
-            RAISE_LIT(mrb, E_FIBER_ERROR, "double resume");
+          else { /* toplevel return */
+            regs[irep->nlocals] = v;
+            goto CHECKPOINT_LABEL_MAKE(RBREAK_TAG_STOP);
           }
         }
+        else if (!c->vmexec && c->prev->ci == c->prev->cibase) {
+          RAISE_LIT(mrb, E_FIBER_ERROR, "double resume");
+        }
+      }
 
-        for (;;) {
-          CHECKPOINT_RESTORE(RBREAK_TAG_BREAK) {
-            if (TRUE) {
-              struct RBreak *brk = (struct RBreak*)mrb->exc;
-              ci = &mrb->c->cibase[brk->ci_break_index];
-              v = mrb_break_value_get(brk);
-            }
-            else {
-            L_UNWINDING:
-              ci = mrb->c->cibase + c;
-              v = regs[a];
-            }
-            mrb_gc_protect(mrb, v);
-          }
-          CHECKPOINT_MAIN(RBREAK_TAG_BREAK) {
-            UNWIND_ENSURE(mrb, mrb->c->ci, mrb->c->ci->pc, RBREAK_TAG_BREAK, ci, v);
-          }
-          CHECKPOINT_END(RBREAK_TAG_BREAK);
-
-          if (mrb->c->ci == ci) {
-            break;
-          }
-          else if (mrb->c->ci->cci == CINFO_NONE) {
-            cipop(mrb);
+      for (;;) {
+        CHECKPOINT_RESTORE(RBREAK_TAG_BREAK) {
+          if (TRUE) {
+            struct RBreak *brk = (struct RBreak*)mrb->exc;
+            ci = &mrb->c->cibase[brk->ci_break_index];
+            v = mrb_break_value_get(brk);
           }
           else {
-            mrb->exc = (struct RObject*)break_new(mrb, RBREAK_TAG_BREAK, ci, v);
-            mrb_gc_arena_restore(mrb, ai);
-            mrb->c->vmexec = FALSE;
-            mrb->jmp = prev_jmp;
-            MRB_THROW(prev_jmp);
+          L_UNWINDING:
+            ci = mrb->c->cibase + c;
+            v = regs[a];
           }
+          mrb_gc_protect(mrb, v);
         }
-        mrb->exc = NULL; /* clear break object */
-
-        if (ci == mrb->c->cibase) {
-          struct mrb_context *c = mrb->c;
-          /* automatic yield at the end */
-          c->status = MRB_FIBER_TERMINATED;
-          mrb->c = c->prev;
-          mrb->c->status = MRB_FIBER_RUNNING;
-          c->prev = NULL;
-          if (c->vmexec) {
-            c->vmexec = FALSE;
-            goto L_VM_RETURN;
-          }
-          ci = mrb->c->ci;
+        CHECKPOINT_MAIN(RBREAK_TAG_BREAK) {
+          UNWIND_ENSURE(mrb, mrb->c->ci, mrb->c->ci->pc, RBREAK_TAG_BREAK, ci, v);
         }
+        CHECKPOINT_END(RBREAK_TAG_BREAK);
 
-        if (mrb->c->vmexec && !CI_TARGET_CLASS(ci)) {
+        if (mrb->c->ci == ci) {
+          break;
+        }
+        else if (mrb->c->ci->cci == CINFO_NONE) {
+          cipop(mrb);
+        }
+        else {
+          mrb->exc = (struct RObject*)break_new(mrb, RBREAK_TAG_BREAK, ci, v);
+          mrb_gc_arena_restore(mrb, ai);
           mrb->c->vmexec = FALSE;
+          mrb->jmp = prev_jmp;
+          MRB_THROW(prev_jmp);
+        }
+      }
+      mrb->exc = NULL; /* clear break object */
+
+      if (ci == mrb->c->cibase) {
+        struct mrb_context *c = mrb->c;
+        /* automatic yield at the end */
+        c->status = MRB_FIBER_TERMINATED;
+        mrb->c = c->prev;
+        mrb->c->status = MRB_FIBER_RUNNING;
+        c->prev = NULL;
+        if (c->vmexec) {
+          c->vmexec = FALSE;
           goto L_VM_RETURN;
         }
-        acc = ci->cci;
-        ci = cipop(mrb);
-        if (acc == CINFO_SKIP || acc == CINFO_DIRECT) {
-        L_VM_RETURN:
-          mrb_gc_arena_restore(mrb, ai);
-          mrb->jmp = prev_jmp;
-          return v;
-        }
-        pc = ci->pc;
-        DEBUG(fprintf(stderr, "from :%s\n", mrb_sym_name(mrb, ci->mid)));
-        proc = ci->proc;
-        irep = proc->body.irep;
-        pool = irep->pool;
-        syms = irep->syms;
-
-        ci[1].stack[0] = v;
-        mrb_gc_arena_restore(mrb, ai);
+        ci = mrb->c->ci;
       }
+
+      if (mrb->c->vmexec && !CI_TARGET_CLASS(ci)) {
+        mrb->c->vmexec = FALSE;
+        goto L_VM_RETURN;
+      }
+      acc = ci->cci;
+      ci = cipop(mrb);
+      if (acc == CINFO_SKIP || acc == CINFO_DIRECT) {
+      L_VM_RETURN:
+        mrb_gc_arena_restore(mrb, ai);
+        mrb->jmp = prev_jmp;
+        return v;
+      }
+      pc = ci->pc;
+      DEBUG(fprintf(stderr, "from :%s\n", mrb_sym_name(mrb, ci->mid)));
+      proc = ci->proc;
+      irep = proc->body.irep;
+      pool = irep->pool;
+      syms = irep->syms;
+
+      ci[1].stack[0] = v;
+      mrb_gc_arena_restore(mrb, ai);
       JUMP;
     }
 
@@ -3093,11 +3080,11 @@ RETRY_TRY_BLOCK:
   }
   MRB_CATCH(&c_jmp) {
     mrb_callinfo *ci = mrb->c->ci;
-    while (ci > mrb->c->cibase && ci->cci == CINFO_DIRECT) {
+    mrb_gc_arena_restore(mrb, ai);
+    while (ci > mrb->c->cibase && (ci->cci == CINFO_DIRECT || !ci->proc || MRB_PROC_CFUNC_P(ci->proc))) {
       ci = cipop(mrb);
     }
     exc_catched = TRUE;
-    pc = ci->pc;
     goto RETRY_TRY_BLOCK;
   }
   MRB_END_EXC(&c_jmp);
