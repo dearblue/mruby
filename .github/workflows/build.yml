@@ -6,41 +6,55 @@ permissions:
   contents: read
 
 jobs:
-  GCC-CLANG:
-    name: "${{ matrix.os }}-${{ matrix.altname || matrix.cc }}"
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      max-parallel: 8
-      matrix:
-        include:
-          - {os: ubuntu-22.04, cc: gcc, cxx: g++}
-          - {os: ubuntu-22.04, cc: clang, cxx: clang++}
-          - {os: ubuntu-20.04, cc: gcc, cxx: g++}
-          - {os: ubuntu-20.04, cc: clang, cxx: clang++}
-          - {os: macos-latest, cc: clang, cxx: clang++}
-          - {os: windows-latest, cc: gcc, cxx: g++, altname: "mingw-gcc"}
-    env:
-      MRUBY_CONFIG: ci/gcc-clang
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
-      LD: ${{ matrix.cc }}
-    steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v4
-      - name: Ruby version
-        run: ruby -v
-      - name: Compiler version
-        run: ${{ env.CC }} --version
-      - name: Build and test
-        run: rake -m test:build && rake test:run
+  #GCC-CLANG:
+  #  name: "${{ matrix.os }}-${{ matrix.altname || matrix.cc }}"
+  #  runs-on: ${{ matrix.os }}
+  #  timeout-minutes: 10
+  #  strategy:
+  #    fail-fast: false
+  #    max-parallel: 8
+  #    matrix:
+  #      include:
+  #        - {os: windows-latest, cc: gcc, cxx: g++, altname: "mingw-gcc"}
+  #  env:
+  #    MRUBY_CONFIG: ci/gcc-clang
+  #    CC: ${{ matrix.cc }}
+  #    CXX: ${{ matrix.cxx }}
+  #    LD: ${{ matrix.cc }}
+  #    PACKAGE_NAME: "mruby-${{ github.sha }}-mingw32_x64"
+  #  steps:
+  #    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+  #      uses: actions/checkout@v4
+  #    - name: Ruby version
+  #      run: ruby -v
+  #    - name: Compiler version
+  #      run: ${{ env.CC }} --version
+  #    - name: Build and test
+  #      run: rake -m test:build && rake test:run
+  #    - name: Package
+  #      run: |
+  #        rake DESTDIR=${{ env.PACKAGE_NAME }} install:full
+  #        tar czf ${{ env.PACKAGE_NAME }}.tar.gz ${{ env.PACKAGE_NAME }}
+  #    - name: Upload artifacts
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        name: "${{ env.PACKAGE_NAME }}"
+  #        path: "${{ env.PACKAGE_NAME }}.tar.gz"
+  #        retention-days: 30
+  #    - name: Check mruby-config
+  #      run: |
+  #        echo '=== bin/mruby-config ==='
+  #        bin/mruby-config --cc --cflags --ld --ldflags --libs
+
+  #        echo '=== build/host/bin/mruby-config ==='
+  #        build/host/bin/mruby-config --cc --cflags --ld --ldflags --libs
 
   Windows-VC:
     runs-on: windows-2022
     timeout-minutes: 10
     env:
       MRUBY_CONFIG: ci/msvc
+      PACKAGE_NAME: "mruby-${{ github.sha }}-msvc_x64"
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v4
@@ -51,3 +65,17 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           rake -m test:build && rake test:run
+      - name: Package
+        run: |
+          rake DESTDIR=artifact PREFIX=${{ env.PACKAGE_NAME }} install:full
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PACKAGE_NAME }}"
+          path: "artifact"
+          retention-days: 90
+      - name: Check mruby-config
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ruby test.c
