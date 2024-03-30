@@ -230,9 +230,6 @@ mrb_static_assert_powerof2(MRB_METHOD_CACHE_SIZE);
  */
 typedef mrb_value (*mrb_func_t)(struct mrb_state *mrb, mrb_value self);
 
-#ifndef MRB_USE_METHOD_T_STRUCT
-typedef uintptr_t mrb_method_t;
-#else
 typedef struct {
   uint8_t flags;
   union {
@@ -240,13 +237,18 @@ typedef struct {
     mrb_func_t func;
   };
 } mrb_method_t;
-#endif
 
 #ifndef MRB_NO_METHOD_CACHE
 struct mrb_cache_entry {
-  struct RClass *c, *c0;
+  struct RClass *c;
+  // embed MRB_METHOD_FUNC_FL and MRB_METHOD_NOARG_FL into the lower 2 bits of struct RClass * of flags.
+  // use the same storage method as word boxing.
+  uintptr_t flags;
   mrb_sym mid;
-  mrb_method_t m;
+  union {
+    struct RProc *proc;
+    mrb_func_t func;
+  };
 };
 #endif
 

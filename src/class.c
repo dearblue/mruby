@@ -243,17 +243,7 @@ mt_free(mrb_state *mrb, mt_tbl *t)
 static inline mrb_method_t
 create_method_value(mrb_state *mrb, mrb_sym key, union mt_ptr val)
 {
-  mrb_method_t m;
-
-  if (key & MT_FUNC_P) {
-    MRB_METHOD_FROM_FUNC(m, val.func);
-  }
-  else {
-    MRB_METHOD_FROM_PROC(m, val.proc);
-  }
-  if (key & MT_NOARG_P) {
-    MRB_METHOD_NOARG_SET(m);
-  }
+  mrb_method_t m = { key & 3, { val.proc } };
   return m;
 }
 
@@ -795,9 +785,6 @@ mrb_define_method_id(mrb_state *mrb, struct RClass *c, mrb_sym mid, mrb_func_t f
   int ai = mrb_gc_arena_save(mrb);
 
   MRB_METHOD_FROM_FUNC(m, func);
-#ifndef MRB_USE_METHOD_T_STRUCT
-  mrb_assert(MRB_METHOD_FUNC(m) == func);
-#endif
   if (aspec == MRB_ARGS_NONE()) {
     MRB_METHOD_NOARG_SET(m);
   }
@@ -1726,6 +1713,13 @@ mrb_define_module_function(mrb_state *mrb, struct RClass *c, const char *name, m
 }
 
 #ifndef MRB_NO_METHOD_CACHE
+#define MC_CLASS_ORIGIN(mc) (struct RClass*)((mc)->flags & ~(uintptr_t)3)
+#define MC_METHOD_FLAGS(mc) (struct RClass*)((mc)->flags & 3)
+#define MC_SET_FLAGS(mc, c, m) do { \
+  mrb_assert(((m).flags & ~(uintptr_t)3) == 0); \
+  (mc)->flags = (uintptr_t)(c) | (m).flags; \
+} while (0)
+
 /* clear whole method cache table */
 static void
 mc_clear(mrb_state *mrb)
@@ -1744,7 +1738,7 @@ mrb_mc_clear_by_class(mrb_state *mrb, struct RClass *c)
   struct mrb_cache_entry *mc = mrb->cache;
 
   for (int i=0; i<MRB_METHOD_CACHE_SIZE; mc++,i++) {
-    if (mc->c == c || mc->c0 == c) mc->c = NULL;
+    if (mc->c == c || MC_CLASS_ORIGIN(mc) == c) mc->c = NULL;
   }
 }
 
@@ -1757,7 +1751,7 @@ mc_clear_by_id(mrb_state *mrb, mrb_sym id)
     if (mc->mid == id) mc->c = NULL;
   }
 }
-#endif
+#endif // MRB_NO_METHOD_CACHE
 
 mrb_method_t
 mrb_vm_find_method(mrb_state *mrb, struct RClass *c, struct RClass **cp, mrb_sym mid)
@@ -1769,8 +1763,10 @@ mrb_vm_find_method(mrb_state *mrb, struct RClass *c, struct RClass **cp, mrb_sym
   struct mrb_cache_entry *mc = &mrb->cache[h];
 
   if (mc->c == c && mc->mid == mid) {
-    *cp = mc->c0;
-    return mc->m;
+    *cp = MC_CLASS_ORIGIN(mc);
+    m.flags = MC_METHOD_FLAGS(mc);
+    m.proc = mc->proc;
+    return m;
   }
 #endif
 
@@ -1786,9 +1782,9 @@ mrb_vm_find_method(mrb_state *mrb, struct RClass *c, struct RClass **cp, mrb_sym
         m =  create_method_value(mrb, ret, ptr);
 #ifndef MRB_NO_METHOD_CACHE
         mc->c = oc;
-        mc->c0 = c;
+        MC_SET_FLAGS(mc, c, m);
         mc->mid = mid;
-        mc->m = m;
+        mc->proc = m.proc;
 #endif
         return m;
       }
