@@ -1262,18 +1262,20 @@ prepare_tagged_break(mrb_state *mrb, uint32_t tag, const mrb_callinfo *return_ci
   }
 }
 
-#define THROW_TAGGED_BREAK(mrb, tag, return_ci, val) \
+#define THROW_TAGGED_BREAK(mrb, tag, ch, irep, return_ci, val) \
   do { \
     prepare_tagged_break(mrb, tag, return_ci, val); \
+    a = (ch) - mrb_irep_catch_handler_table(irep); \
     goto L_CATCH_TAGGED_BREAK; \
   } while (0)
 
 #define UNWIND_ENSURE(mrb, ci, pc, tag, return_ci, val) \
   do { \
     const struct RProc *proc = (ci)->proc; \
+    const struct mrb_irep_catch_handler *ch; \
     if (proc && !MRB_PROC_CFUNC_P(proc) && (irep = proc->body.irep) && irep->clen > 0 && \
         (ch = catch_handler_find(irep, pc, MRB_CATCH_FILTER_ENSURE))) { \
-      THROW_TAGGED_BREAK(mrb, tag, return_ci, val); \
+      THROW_TAGGED_BREAK(mrb, tag, ch, irep, return_ci, val); \
     } \
   } while (0)
 
@@ -1418,7 +1420,6 @@ mrb_vm_exec(mrb_state *mrb, const struct RProc *begin_proc, const mrb_code *iseq
   uint16_t b;
   uint16_t c;
   mrb_sym mid;
-  const struct mrb_irep_catch_handler *ch;
   mrb_callinfo *ci;
 
 #ifndef MRB_USE_VM_SWITCH_DISPATCH
@@ -1742,11 +1743,12 @@ RETRY_TRY_BLOCK:
         mrb_assert(a >= 0 && a < irep->ilen);
       }
       CHECKPOINT_MAIN(RBREAK_TAG_JUMP) {
+        const struct mrb_irep_catch_handler *ch;
         if (irep->clen > 0 &&
             (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ENSURE))) {
           /* avoiding a jump from a catch handler into the same handler */
           if (a < mrb_irep_catch_handler_unpack(ch->begin) || a >= mrb_irep_catch_handler_unpack(ch->end)) {
-            THROW_TAGGED_BREAK(mrb, RBREAK_TAG_JUMP, mrb->c->ci, mrb_fixnum_value(a));
+            THROW_TAGGED_BREAK(mrb, RBREAK_TAG_JUMP, ch, irep, mrb->c->ci, mrb_fixnum_value(a));
           }
         }
       }
@@ -1816,6 +1818,7 @@ RETRY_TRY_BLOCK:
         }
       }
       else {
+        const struct mrb_irep_catch_handler *ch;
         mrb_exc_set(mrb, exc);
       L_RAISE:
         ci = mrb->c->ci;
@@ -1848,6 +1851,7 @@ RETRY_TRY_BLOCK:
         if (FALSE) {
         L_CATCH_TAGGED_BREAK: /* from THROW_TAGGED_BREAK() or UNWIND_ENSURE() */
           ci = mrb->c->ci;
+          ch = mrb_irep_catch_handler_table(ci->proc->body.irep) + a;
         }
         irep = ci->proc->body.irep;
         stack_extend(mrb, irep->nregs);
