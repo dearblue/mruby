@@ -1193,28 +1193,6 @@ catch_handler_find(const mrb_irep *irep, const mrb_code *pc, uint32_t filter)
   return NULL;
 }
 
-typedef enum {
-  LOCALJUMP_ERROR_RETURN = 0,
-  LOCALJUMP_ERROR_BREAK = 1,
-  LOCALJUMP_ERROR_YIELD = 2
-} localjump_error_kind;
-
-static void
-localjump_error(mrb_state *mrb, localjump_error_kind kind)
-{
-  char kind_str[3][7] = { "return", "break", "yield" };
-  char kind_str_len[] = { 6, 5, 5 };
-  static const char lead[] = "unexpected ";
-  mrb_value msg;
-  mrb_value exc;
-
-  msg = mrb_str_new_capa(mrb, sizeof(lead) + 7);
-  mrb_str_cat(mrb, msg, lead, sizeof(lead) - 1);
-  mrb_str_cat(mrb, msg, kind_str[kind], kind_str_len[kind]);
-  exc = mrb_exc_new_str(mrb, E_LOCALJUMP_ERROR, msg);
-  mrb_exc_set(mrb, exc);
-}
-
 #define RAISE_EXC(mrb, exc) do { \
   mrb_value exc_value = (exc); \
   mrb_exc_set(mrb, exc_value); \
@@ -2362,21 +2340,16 @@ RETRY_TRY_BLOCK:
       const struct RProc *dst = top_proc(mrb, ci->proc);
       mrb_callinfo *cibase = mrb->c->cibase;
 
-      if (MRB_PROC_ENV_P(dst)) {
-        struct REnv *e = MRB_PROC_ENV(dst);
-
-        if (!MRB_ENV_ONSTACK_P(e) || e->cxt != mrb->c) {
-          localjump_error(mrb, LOCALJUMP_ERROR_RETURN);
-          goto L_RAISE;
-        }
+      if (MRB_PROC_ENV_P(dst) && dst->e.env->cxt != mrb->c) {
+      L_RETURN_ERROR:
+        RAISE_LIT(mrb, E_LOCALJUMP_ERROR, "unexpected return");
       }
       /* check jump destination */
       while (cibase <= ci && ci->proc != dst) {
         ci--;
       }
       if (ci <= cibase) { /* no jump destination */
-        localjump_error(mrb, LOCALJUMP_ERROR_RETURN);
-        goto L_RAISE;
+        goto L_RETURN_ERROR;
       }
       goto L_UNWINDING;
     }
@@ -2480,14 +2453,13 @@ RETRY_TRY_BLOCK:
         struct REnv *e = uvenv(mrb, lv-1);
         if (!e || (!MRB_ENV_ONSTACK_P(e) && e->mid == 0) ||
             MRB_ENV_LEN(e) <= m1+r+m2+1) {
-          localjump_error(mrb, LOCALJUMP_ERROR_YIELD);
-          goto L_RAISE;
+          goto L_YIELD_ERROR;
         }
         stack = e->stack + 1;
       }
       if (mrb_nil_p(stack[m1+r+m2+kd])) {
-        localjump_error(mrb, LOCALJUMP_ERROR_YIELD);
-        goto L_RAISE;
+      L_YIELD_ERROR:
+        RAISE_LIT(mrb, E_LOCALJUMP_ERROR, "unexpected yield");
       }
       regs[a] = stack[m1+r+m2+kd];
       NEXT;
