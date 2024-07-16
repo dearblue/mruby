@@ -1271,9 +1271,8 @@ prepare_tagged_break(mrb_state *mrb, uint32_t tag, const mrb_callinfo *return_ci
 
 #define UNWIND_ENSURE(mrb, ci, pc, tag, return_ci, val) \
   do { \
-    const struct RProc *proc = (ci)->proc; \
     const struct mrb_irep_catch_handler *ch; \
-    if (proc && !MRB_PROC_CFUNC_P(proc) && (irep = proc->body.irep) && irep->clen > 0 && \
+    if ((irep = (ci)->proc->body.irep) && irep->clen > 0 && \
         (ch = catch_handler_find(irep, pc, MRB_CATCH_FILTER_ENSURE))) { \
       THROW_TAGGED_BREAK(mrb, tag, ch, irep, return_ci, val); \
     } \
@@ -1310,6 +1309,23 @@ prepare_tagged_break(mrb_state *mrb, uint32_t tag, const mrb_callinfo *return_ci
 
 #define CHECKPOINT_END(tag) \
     } while (0); \
+  } while (0)
+
+#define CIPOP_DIRECT(mrb, ci) \
+  do { \
+    while ((ci) > (mrb)->c->cibase && (ci)->cci == CINFO_DIRECT) { \
+      (ci) = cipop(mrb); \
+    } \
+    mrb_assert((ci)->cci == CINFO_NONE || (ci)->cci == CINFO_SKIP); \
+  } while (0)
+
+#define CIPOP_CFUNC_ONCE(mrb, ci) \
+  do { \
+    if ((ci) > (mrb)->c->cibase && (!(ci)->proc || MRB_PROC_CFUNC_P((ci)->proc))) { \
+      mrb_assert((ci)->cci == CINFO_NONE); \
+      (ci) = cipop(mrb); \
+    } \
+    mrb_assert((ci)->cci == CINFO_NONE || (ci)->cci == CINFO_SKIP); \
   } while (0)
 
 #ifdef MRB_USE_DEBUG_HOOK
@@ -1441,7 +1457,6 @@ RETRY_TRY_BLOCK:
   MRB_TRY(&c_jmp) {
 
   if (mrb->exc) {
-    mrb_gc_arena_restore(mrb, ai);
     if (mrb->exc->tt == MRB_TT_BREAK)
       goto L_BREAK;
     goto L_RAISE;
@@ -1822,8 +1837,12 @@ RETRY_TRY_BLOCK:
         mrb_exc_set(mrb, exc);
       L_RAISE:
         ci = mrb->c->ci;
-        while (!ci->proc || MRB_PROC_CFUNC_P(ci->proc) || !(irep = ci->proc->body.irep) || irep->clen < 1 ||
-               (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ALL)) == NULL) {
+        CIPOP_CFUNC_ONCE(mrb, ci);
+        for (;;) {
+          irep = ci->proc->body.irep;
+          if (irep->clen > 0 && (ch = catch_handler_find(irep, ci->pc, MRB_CATCH_FILTER_ALL))) {
+            break;
+          }
           if (ci != mrb->c->cibase) {
             ci = cipop(mrb);
             if (ci[1].cci == CINFO_SKIP) {
@@ -1841,10 +1860,16 @@ RETRY_TRY_BLOCK:
             struct mrb_context *c = mrb->c;
 
             fiber_terminate(mrb, c, ci);
-            if (!c->vmexec) goto L_RAISE;
-            mrb->jmp = prev_jmp;
-            if (!prev_jmp) return mrb_obj_value(mrb->exc);
-            MRB_THROW(prev_jmp);
+            if (!c->vmexec) {
+              ci = mrb->c->ci;
+              CIPOP_DIRECT(mrb, ci);
+              CIPOP_CFUNC_ONCE(mrb, ci);
+            }
+            else {
+              mrb->jmp = prev_jmp;
+              if (!prev_jmp) return mrb_obj_value(mrb->exc);
+              MRB_THROW(prev_jmp);
+            }
           }
         }
 
@@ -2356,11 +2381,9 @@ RETRY_TRY_BLOCK:
       goto L_UNWINDING;
     }
     CASE(OP_RETURN, B) {
-      mrb_int acc;
       mrb_value v;
 
     NORMAL_RETURN:
-      ci = mrb->c->ci;
       v = regs[a];
       mrb_gc_protect(mrb, v);
       CHECKPOINT_RESTORE(RBREAK_TAG_BREAK) {
@@ -2368,12 +2391,18 @@ RETRY_TRY_BLOCK:
           struct RBreak *brk = (struct RBreak*)mrb->exc;
           ci = &mrb->c->cibase[brk->ci_break_index];
           v = mrb_break_value_get(brk);
+          mrb_gc_protect(mrb, v);
+          if (ci > mrb->c->ci) {
+            mrb->exc = NULL; /* clear break object */
+            ci = mrb->c->ci;
+            goto L_UNWINDING_EPILOGUE;
+          }
         }
         else {
         L_UNWINDING:
           v = mrb->c->ci->stack[a];
+          mrb_gc_protect(mrb, v);
         }
-        mrb_gc_protect(mrb, v);
       }
       CHECKPOINT_MAIN(RBREAK_TAG_BREAK) {
         for (;;) {
@@ -2422,9 +2451,9 @@ RETRY_TRY_BLOCK:
         mrb->jmp = prev_jmp;
         return v;
       }
-      acc = ci->cci;
       ci = cipop(mrb);
-      if (acc == CINFO_SKIP || acc == CINFO_DIRECT) {
+    L_UNWINDING_EPILOGUE:
+      if (ci[1].cci == CINFO_SKIP || ci[1].cci == CINFO_DIRECT) {
         mrb_gc_arena_restore(mrb, ai);
         mrb->jmp = prev_jmp;
         return v;
@@ -3111,9 +3140,9 @@ RETRY_TRY_BLOCK:
     mrb_assert(mrb->exc != NULL);
 
     ci = mrb->c->ci;
-    while (ci > mrb->c->cibase && ci->cci == CINFO_DIRECT) {
-      ci = cipop(mrb);
-    }
+    mrb_gc_arena_restore(mrb, ai);
+    CIPOP_DIRECT(mrb, ci);
+    CIPOP_CFUNC_ONCE(mrb, ci);
     goto RETRY_TRY_BLOCK;
   }
   MRB_END_EXC(&c_jmp);
