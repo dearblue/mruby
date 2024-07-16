@@ -2405,14 +2405,15 @@ RETRY_TRY_BLOCK:
         }
       }
       CHECKPOINT_MAIN(RBREAK_TAG_BREAK) {
+        mrb_callinfo *curr_ci = mrb->c->ci;
         for (;;) {
-          UNWIND_ENSURE(mrb, mrb->c->ci, mrb->c->ci->pc, RBREAK_TAG_BREAK, ci, v);
+          UNWIND_ENSURE(mrb, curr_ci, curr_ci->pc, RBREAK_TAG_BREAK, ci, v);
 
-          if (mrb->c->ci == ci) {
+          if (curr_ci == ci) {
             break;
           }
-          cipop(mrb);
-          if (mrb->c->ci[1].cci != CINFO_NONE) {
+          curr_ci = cipop(mrb);
+          if (curr_ci[1].cci != CINFO_NONE) {
             mrb_assert(prev_jmp != NULL);
             mrb->exc = (struct RObject*)break_new(mrb, RBREAK_TAG_BREAK, ci, v);
             mrb_gc_arena_restore(mrb, ai);
