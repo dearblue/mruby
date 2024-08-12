@@ -11,6 +11,7 @@ $LOAD_PATH << File.join(MRUBY_ROOT, "lib")
 # load build systems
 require "mruby/core_ext"
 require "mruby/build"
+require "mruby/source"
 
 # load configuration file
 MRUBY_CONFIG = MRuby::Build.mruby_config_path
@@ -32,6 +33,7 @@ load "#{MRUBY_ROOT}/tasks/test.rake"
 load "#{MRUBY_ROOT}/tasks/benchmark.rake"
 load "#{MRUBY_ROOT}/tasks/doc.rake"
 load "#{MRUBY_ROOT}/tasks/install.rake"
+load "#{MRUBY_ROOT}/tasks/makefile.rake"
 
 ##############################
 # generic build targets, rules
