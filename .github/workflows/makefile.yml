@@ -1,0 +1,35 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  makefile:
+    name: Generate Makefile suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rake makefile
+          mkdir artifact
+          mv build/host/makefile/mruby-* artifact/mruby-dist-makefile-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mruby-dist-makefile-${{ github.sha }}
+          path: artifact
+  make:
+    name: Build with Makefile suite
+    needs: [makefile]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mruby-dist-makefile-${{ github.sha }}
+      - run: |
+          find . -type f -ls
+      - run: |
+          make -C mruby-dist-makefile-${{ github.sha }} help
+          make -C mruby-dist-makefile-${{ github.sha }} about
+      - run: |
+          make -C mruby-dist-makefile-${{ github.sha }} WORKDIR=../work
+          find work -type f -ls
+          work/bin/mruby -e '5.times { p "The wonderful world of mruby!" }'
