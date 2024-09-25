@@ -236,6 +236,17 @@ mrb_proc_copy(mrb_state *mrb, struct RProc *a, struct RProc *b)
   a->upper = b->upper;
   a->e.env = b->e.env;
   /* a->e.target_class = a->e.target_class; */
+
+  /* if b is not an orphan proc, remove the flag */
+  if (MRB_PROC_ENV(b) && b->e.env->cxt) {
+    struct mrb_context *c = b->e.env->cxt;
+    for (ptrdiff_t i = c->ci - c->cibase; i > 0; i--) {
+      if (c->cibase[i].blk == b && c->cibase[i - 1].u.env == b->e.env) {
+        a->flags &= ~MRB_PROC_ORPHAN;
+        break;
+      }
+    }
+  }
 }
 
 static mrb_value

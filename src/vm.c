@@ -349,6 +349,11 @@ cipush(mrb_state *mrb, mrb_int push_stacks, uint8_t cci, struct RClass *target_c
     c->ci = ci = c->cibase + size;
     c->ciend = c->cibase + size * 2;
   }
+  if (blk && (blk->flags & (MRB_PROC_CFUNC_FL | MRB_PROC_ENVSET | MRB_PROC_ORPHAN)) == MRB_PROC_ENVSET &&
+      blk->e.env == ci[-1].u.env) {
+    mrb_assert(blk->color != MRB_GC_RED); // currently, no exist red object with env set
+    blk->flags |= MRB_PROC_ORPHAN;
+  }
   ci->mid = mid;
   CI_PROC_SET(ci, proc);
   ci->blk = blk;
@@ -459,10 +464,6 @@ cipop(mrb_state *mrb)
   struct REnv *env = CI_ENV(ci);
 
   ci_env_set(ci, NULL); // make possible to free env by GC if not needed
-  struct RProc *b = ci->blk;
-  if (b && !MRB_PROC_STRICT_P(b) && MRB_PROC_ENV(b) == CI_ENV(&ci[-1])) {
-    b->flags |= MRB_PROC_ORPHAN;
-  }
   if (env && !mrb_env_unshare(mrb, env, TRUE)) {
     c->ci--; // exceptions are handled at the method caller; see #3087
     mrb_exc_raise(mrb, mrb_obj_value(mrb->nomem_err));
@@ -2260,10 +2261,12 @@ RETRY_TRY_BLOCK:
 
     CASE(OP_BREAK, B) {
       if (MRB_PROC_STRICT_P(ci->proc)) goto NORMAL_RETURN;
-      if (!MRB_PROC_ORPHAN_P(ci->proc) && MRB_PROC_ENV_P(ci->proc) && ci->proc->e.env->cxt == mrb->c) {
+      if (MRB_PROC_ENV_P(ci->proc) && ci->proc->e.env->cxt == mrb->c) {
+        const struct RProc *jumper = ci->proc;
         const struct RProc *dst = ci->proc->upper;
         for (ptrdiff_t i = ci - mrb->c->cibase; i > 0; i--, ci--) {
           if (ci[-1].proc == dst) {
+            if (ci->blk != jumper && MRB_PROC_ORPHAN_P(jumper)) break; // to error
             goto L_UNWINDING;
           }
         }
