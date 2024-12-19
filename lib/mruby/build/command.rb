@@ -29,8 +29,22 @@ module MRuby
     end
 
     private
-    def _run(options, params={})
-      sh "#{build.filename(command)} #{options % params}"
+    def _run(*args)
+      case args.size
+      when 1
+        options = args[0]
+      when 2
+        if args[0].kind_of?(Hash)
+          env, options = args
+        else
+          options, params = args
+        end
+      when 3
+        env, options, params = args
+      else
+        raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 1..3)"
+      end
+      sh (env || {}), "#{build.filename(command)} #{options % (params || {})}"
     end
   end
 
@@ -360,6 +374,7 @@ module MRuby
     attr_accessor :runner_options
     attr_accessor :verbose_flag
     attr_accessor :flags
+    attr_reader :env
 
     def initialize(build)
       super
@@ -367,6 +382,7 @@ module MRuby
       @runner_options = '%{flags} %{infile}'
       @verbose_flag = ''
       @flags = []
+      @env = Env.new
     end
 
     def runner
@@ -378,14 +394,46 @@ module MRuby
     def run(testbinfile, extraflags = nil)
       case
       when command
-        _run runner_options, { :flags => [flags, verbose_flag, *extraflags].flatten.join(' '), :infile => testbinfile }
+        _run @env.to_hash, runner_options, { :flags => [flags, verbose_flag, *extraflags].flatten.join(' '), :infile => testbinfile }
       when build.kind_of?(MRuby::CrossBuild)
         puts "You should run #{testbinfile} on target device."
         puts
       else
-        sh "#{testbinfile}#{extraflags}"
+        sh @env.to_hash, "#{testbinfile}#{extraflags}"
       end
       puts
+    end
+
+    class Env
+      include Enumerable
+
+      def initialize
+        @env = Hash.new
+      end
+
+      def [](name)
+        @env[String(name)]
+      end
+
+      def []=(name, value)
+        @env["" + name] = "" + value
+      end
+
+      def each(&b)
+        return to_enum unless b
+        @env.each(&b)
+        self
+      end
+
+      def to_hash
+        @env.dup
+      end
+
+      def merge(*envs)
+        env = to_hash
+        envs.each { |e| env.merge! e }
+        env
+      end
     end
   end
   Command::CrossTestRunner = Command::TestRunner
