@@ -153,13 +153,6 @@ module MRuby
       begin
         current.instance_eval(&block)
       ensure
-        if current.libmruby_enabled? && !current.mrbcfile_external?
-          if current.presym_enabled?
-            current.create_mrbc_build if current.host? || current.gems["mruby-bin-mrbc"]
-          elsif current.host?
-            current.build_mrbc_exec
-          end
-        end
         current.presym = Presym.new(current) if current.presym_enabled?
       end
     end
@@ -550,7 +543,7 @@ EOS
     attr_writer :presym
 
     def create_mrbc_build
-      exclusions = %i[@name @build_dir @gems @enable_test @enable_bintest @internal @install_excludes]
+      exclusions = %i[@name @build_dir @gems @enable_test @enable_bintest @internal @install_excludes @presym]
       name = "#{@name}/mrbc"
       MRuby.targets.delete(name)
       build = self.class.new(name, internal: true){}

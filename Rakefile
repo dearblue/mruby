@@ -16,6 +16,28 @@ require "mruby/build"
 MRUBY_CONFIG = MRuby::Build.mruby_config_path
 load MRUBY_CONFIG
 
+need_bootstraps = []
+MRuby.each_target do |t|
+  need_bootstraps << t unless t.mrbcfile_external?
+end
+
+unless need_bootstraps.empty?
+  case
+  when host = MRuby.targets.find { |n, t|
+                !t.kind_of?(MRuby::CrossBuild) &&
+                  !t.presym_enabled? &&
+                  t.gems.find { |g| g.name == "mruby-bin-mrbc"}
+              }
+    mrbc = host.yield_self { |n, t| File.join(t.build_dir, "bin/mrbc") }
+  when host = need_bootstraps.find { |e| e.host? } ||
+              need_bootstraps.find { |e| !e.kind_of?(MRuby::CrossBuild) }
+    mrbc = host.instance_eval { create_mrbc_build.mrbcfile }
+  else
+    raise("need host target build")
+  end
+  need_bootstraps.each { |b| b.mrbcfile = mrbc }
+end
+
 # load basic rules
 MRuby.each_target do |build|
   build.define_rules

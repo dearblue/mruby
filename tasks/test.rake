@@ -27,7 +27,7 @@ namespace :test do |test_ns|
   end
 
   desc "run all mruby tests"
-  task :run
+  task :run => "run:configure"
 
   namespace :run do
     desc "run library tests"
@@ -35,6 +35,11 @@ namespace :test do |test_ns|
 
     desc "run command binaries tests"
     task :bin
+
+    desc "run build configuration file test (ignore MRUBY_CONFIG)"
+    task :configure do |t|
+      sh %(ruby "#{File.join(MRUBY_ROOT, "test/configure.rb")}")
+    end
   end
 
   desc "run all mruby tests serially"
