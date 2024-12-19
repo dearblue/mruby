@@ -356,7 +356,7 @@ module MRuby
     end
   end
 
-  class Command::CrossTestRunner < Command
+  class Command::TestRunner < Command
     attr_accessor :runner_options
     attr_accessor :verbose_flag
     attr_accessor :flags
@@ -369,15 +369,25 @@ module MRuby
       @flags = []
     end
 
-    def emulator
+    def runner
       return "" unless @command
       return [@command, *@flags].map{|c| shellquote(c)}.join(' ')
     end
+    alias emulator runner
 
-    def run(testbinfile)
-      puts "TEST for " + @build.name
-      _run runner_options, { :flags => [flags, verbose_flag].flatten.join(' '), :infile => testbinfile }
+    def run(testbinfile, extraflags = nil)
+      case
+      when command
+        _run runner_options, { :flags => [flags, verbose_flag, *extraflags].flatten.join(' '), :infile => testbinfile }
+      when build.kind_of?(MRuby::CrossBuild)
+        puts "You should run #{testbinfile} on target device."
+        puts
+      else
+        sh "#{testbinfile}#{extraflags}"
+      end
+      puts
     end
   end
+  Command::CrossTestRunner = Command::TestRunner
 
 end

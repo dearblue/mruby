@@ -3,6 +3,9 @@ require 'test/assert.rb'
 
 GEMNAME = ""
 
+runner = ENV["TEST_RUNNER"]
+TEST_RUNNER = runner && !runner.empty? && runner
+
 def cmd_bin(s)
   path = s == "mrbc" ? ENV['MRBCFILE'] : "#{ENV['BUILD_DIR']}/bin/#{s}"
   path = path.sub(/\.exe\z/, "")
@@ -14,10 +17,7 @@ end
 
 def cmd_list(s)
   path_list = [cmd_bin(s)]
-
-  emu = ENV['EMULATOR']
-  path_list.unshift emu if emu && !emu.empty?
-
+  path_list.unshift TEST_RUNNER if TEST_RUNNER
   path_list
 end
 

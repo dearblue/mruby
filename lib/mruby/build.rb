@@ -78,6 +78,7 @@ module MRuby
     attr_accessor :name, :bins, :exts, :file_separator, :build_dir, :gem_clone_dir, :defines, :libdir_name
     attr_reader :products, :libmruby_core_objs, :libmruby_objs, :gems, :toolchains, :presym, :mrbc_build, :gem_dir_to_repo_url
     attr_reader :install_excludes
+    attr_block :test_runner
 
     alias libmruby libmruby_objs
 
@@ -116,6 +117,7 @@ module MRuby
         @gperf = Command::Gperf.new(self)
         @git = Command::Git.new(self)
         @mrbc = Command::Mrbc.new(self)
+        @test_runner = Command::TestRunner.new(self)
 
         @products = []
         @bins = []
@@ -466,8 +468,8 @@ EOS
 
     def run_test
       puts ">>> Test #{name} <<<"
-      mrbtest = exefile("#{build_dir}/bin/mrbtest")
-      sh "#{filename mrbtest.relative_path}#{verbose_flag}"
+      mrbtest = filename(exefile("#{build_dir}/bin/mrbtest").relative_path)
+      test_runner.run(mrbtest, verbose_flag)
       puts
     end
 
@@ -476,6 +478,7 @@ EOS
       targets = @gems.select { |v| File.directory? "#{v.dir}/bintest" }.map { |v| filename v.dir }
       mrbc = @gems["mruby-bin-mrbc"] ? exefile("#{@build_dir}/bin/mrbc") : mrbcfile
       env = {"BUILD_DIR" => @build_dir, "MRBCFILE" => mrbc}
+      env["TEST_RUNNER"] = test_runner.command if test_runner.command
       bintest = File.join(MRUBY_ROOT, "test/bintest.rb")
       sh env, "ruby #{bintest}#{verbose_flag} #{targets.join ' '}"
     end
@@ -573,14 +576,12 @@ EOS
   end # Build
 
   class CrossBuild < Build
-    attr_block %w(test_runner)
     # cross compiling targets for building native extensions.
     # host  - arch of where the built binary will run
     # build - arch of the machine building the binary
     attr_accessor :host_target, :build_target
 
     def initialize(name, build_dir=nil, &block)
-      @test_runner = Command::CrossTestRunner.new(self)
       super
       unless mrbcfile_external? || MRuby.targets['host']
         # add minimal 'host'
@@ -598,28 +599,21 @@ EOS
     end
 
     def run_test
-      @test_runner.runner_options << verbose_flag
-      mrbtest = exefile("#{build_dir}/bin/mrbtest")
-      if (@test_runner.command == nil)
-        puts "You should run #{mrbtest} on target device."
-        puts
+      if test_runner.command
+        super
       else
-        @test_runner.run(mrbtest)
+        mrbtest = exefile("#{build_dir}/bin/mrbtest")
+        puts "You should run #{mrbtest} on target device."
       end
     end
 
     def run_bintest
-      puts ">>> Bintest #{name} <<<"
-      targets = @gems.select { |v| File.directory? "#{v.dir}/bintest" }.map { |v| filename v.dir }
-      mrbc = @gems["mruby-bin-mrbc"] ? exefile("#{@build_dir}/bin/mrbc") : mrbcfile
-
-      env = {
-        "BUILD_DIR" => @build_dir,
-        "MRBCFILE" => mrbc,
-        "EMULATOR" => @test_runner.emulator,
-      }
-      bintest = File.join(MRUBY_ROOT, "test/bintest.rb")
-      sh env, "ruby #{bintest}#{verbose_flag} #{targets.join ' '}"
+      if test_runner.command
+        super
+      else
+        mrbtest = exefile("#{build_dir}/bin/mrbtest")
+        puts "To run bintest, you should set `#<MRuby::CrossBuild #{build.name}>#test_runner.command`"
+      end
     end
 
     protected
