@@ -73,7 +73,9 @@ MRuby.each_target do
       libgems = gems.reject{|g| g.bin?}
       gem_flags = libgems.map {|g| g.linker.flags }
       gem_library_paths = libgems.map {|g| g.linker.library_paths }
-      f.puts "MRUBY_LDFLAGS = #{linker.all_flags(gem_library_paths, gem_flags)} #{linker.option_library_path % "$(MRUBY_PACKAGE_DIR)/#{libdir_name}"}"
+      linker2 = linker.clone
+      linker2.library_paths = linker2.library_paths.flatten.replace_prefix_by(build_dir => "$(MRUBY_PACKAGE_DIR)")
+      f.puts "MRUBY_LDFLAGS = #{linker2.all_flags(gem_library_paths, gem_flags)}"
 
       gem_flags_before_libraries = libgems.map {|g| g.linker.flags_before_libraries }
       f.puts "MRUBY_LDFLAGS_BEFORE_LIBS = #{[linker.flags_before_libraries, gem_flags_before_libraries].flatten.join(' ')}"

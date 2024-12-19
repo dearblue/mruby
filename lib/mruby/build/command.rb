@@ -200,7 +200,7 @@ module MRuby
 
   class Command::Linker < Command
     attr_accessor :flags, :library_paths, :flags_before_libraries, :libraries, :flags_after_libraries
-    attr_accessor :link_options, :option_library, :option_library_path
+    attr_accessor :link_options, :option_library, :option_library_path, :libmruby
 
     def initialize(build)
       super
@@ -212,6 +212,7 @@ module MRuby
       @option_library = %q[-l"%s"]
       @option_library_path = %q[-L"%s"]
       @link_options = %Q[%{flags} -o "%{outfile}" %{objs} %{flags_before_libraries} %{libs} %{flags_after_libraries}]
+      @libmruby = "mruby"
     end
 
     def all_flags(_library_paths=[], _flags=[])
@@ -229,16 +230,19 @@ module MRuby
       [@libraries, @library_paths, @flags, @flags_before_libraries, @flags_after_libraries]
     end
 
-    def run(outfile, objfiles, _libraries=[], _library_paths=[], _flags=[], _flags_before_libraries=[], _flags_after_libraries=[])
+    def run(outfile, objfiles, _libraries=[], _library_paths=[], _flags=[], _flags_before_libraries=[], _flags_after_libraries=[], libmruby: @libmruby)
+      # (要修正) libmruby をここで指定すると、GEM 設定ファイルでコマンド呼び出しを行えなくなる。
+      # (回避策) GEM 側で dup_linker.instance_variable_set(:@libmruby, []) とする。過去の mruby は変数が未使用状態なため、無害。
+
       mkdir_p File.dirname(outfile)
-      library_flags = [libraries, _libraries].flatten.map { |d| option_library % d }
+      library_flags = [libmruby, libraries, _libraries].flatten.map { |d| option_library % d }
 
       _pp "LD", outfile.relative_path
-      _run link_options, { :flags => all_flags(_library_paths, _flags),
-                            :outfile => filename(outfile) , :objs => filename(objfiles).map{|f| %Q["#{f}"]}.join(' '),
-                            :flags_before_libraries => [flags_before_libraries, _flags_before_libraries].flatten.join(' '),
-                            :flags_after_libraries => [flags_after_libraries, _flags_after_libraries].flatten.join(' '),
-                            :libs => library_flags.join(' ') }
+      _run link_options, { :flags => all_flags(_library_paths, _flags).gsub("$(MRUBY_PACKAGE_DIR)", build.build_dir),
+                           :outfile => filename(outfile) , :objs => filename(objfiles).map{|f| %Q["#{f}"]}.join(' '),
+                           :flags_before_libraries => [flags_before_libraries, _flags_before_libraries].flatten.join(' ').gsub("$(MRUBY_PACKAGE_DIR)", build.build_dir),
+                           :flags_after_libraries => [flags_after_libraries, _flags_after_libraries].flatten.join(' ').gsub("$(MRUBY_PACKAGE_DIR)", build.build_dir),
+                           :libs => library_flags.join(' ').gsub("$(MRUBY_PACKAGE_DIR)", build.build_dir) }
     end
   end
 

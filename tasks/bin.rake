@@ -4,6 +4,8 @@ MRuby.each_target do |build|
     build.products << build.define_installer(exe)
   end
 
+  build.linker.library_paths.insert 0, File.join(build.build_dir, build.libdir_name)
+
   build.bins.each{|bin| build.products << define_installer_if_needed(bin)}
 
   build.gems.each do |gem|
@@ -13,8 +15,8 @@ MRuby.each_target do |build|
       objs = Dir["#{gem.dir}/tools/#{bin}/*.{c,cpp,cxx,cc}"].map do |f|
         build.objfile(f.pathmap("#{gem.build_dir}/tools/#{bin}/%n"))
       end
-      file exe => objs.concat(build.libraries) do |t|
-        build.linker.run t.name, t.prerequisites, *linker_attrs
+      file exe => objs + build.libraries do |t|
+        build.linker.run t.name, objs, *linker_attrs
       end
 
       build.products << define_installer_if_needed(bin)
