@@ -24,7 +24,7 @@
   #define NULL_FILE "NUL"
   #define UNLINK _unlink
   #define GETCWD _getcwd
-  #define CHMOD(a, b) 0
+  #define CHMOD(a, b) _chmod(a, b)
   #define MAXPATHLEN 1024
  #if !defined(PATH_MAX)
   #define PATH_MAX _MAX_PATH

@@ -256,6 +256,7 @@ assert('File.chmod') do
   begin
     assert_equal 1, File.chmod(0400, "#{$mrbtest_io_wfname}.chmod-test")
   ensure
+    File.chmod(0600, "#{$mrbtest_io_wfname}.chmod-test") rescue nil if MRubyIOTestUtil.win?
     File.delete("#{$mrbtest_io_wfname}.chmod-test")
   end
 end
