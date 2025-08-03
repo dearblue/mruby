@@ -354,7 +354,8 @@ prepare_singleton_class(mrb_state *mrb, struct RBasic *o)
 
   mrb_assert(o->c);
   if (o->c->tt == MRB_TT_SCLASS) return;
-  struct RClass *sc = MRB_OBJ_ALLOC(mrb, MRB_TT_SCLASS, mrb->class_class);
+  struct RClass *sc = MRB_OBJ_ALLOC(mrb, MRB_TT_SCLASS, NULL);
+  sc->c = mrb->class_class;
   sc->flags |= MRB_FL_CLASS_IS_INHERITED;
   sc->mt = NULL;
   sc->iv = NULL;
@@ -1843,7 +1844,8 @@ boot_initmod(mrb_state *mrb, struct RClass *mod)
 static struct RClass*
 include_class_new(mrb_state *mrb, struct RClass *m, struct RClass *super)
 {
-  struct RClass *ic = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, mrb->class_class);
+  struct RClass *ic = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, NULL);
+  ic->c = mrb->class_class;
   if (m->tt == MRB_TT_ICLASS) {
     m = m->c;
   }
@@ -1998,7 +2000,8 @@ mrb_prepend_module(mrb_state *mrb, struct RClass *c, struct RClass *m)
 {
   mrb_check_frozen(mrb, c);
   if (!(c->flags & MRB_FL_CLASS_IS_PREPENDED)) {
-    struct RClass *origin = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, c);
+    struct RClass *origin = MRB_OBJ_ALLOC(mrb, MRB_TT_ICLASS, NULL);
+    origin->c = c;
     origin->flags |= MRB_FL_CLASS_IS_ORIGIN | MRB_FL_CLASS_IS_INHERITED;
     origin->super = c->super;
     c->super = origin;
