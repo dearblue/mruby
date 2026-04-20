@@ -345,6 +345,7 @@ module MRuby
       opt << " -s" if static
       cmd = %["#{filename @command}" #{opt} #{filename(infiles).map{|f| %["#{f}"]}.join(' ')}]
       puts cmd if Rake.verbose
+      out.flush
       unless system(cmd, out: out)
         rm_f out.path
         fail "Command failed with status (#{$?.exitstatus}): [#{cmd[0,42]}...]"
